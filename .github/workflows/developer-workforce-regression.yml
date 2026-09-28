@@ -19,6 +19,8 @@ jobs:
         run: node -e "JSON.parse(require('fs').readFileSync('hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/manifest.json','utf8')); console.log('manifest PASS')"
       - name: Package and static reference integrity
         run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/tests/package-integrity.test.js
+      - name: Extension diagnostics
+        run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/extension-diagnostics.test.mjs
       - name: Runtime observability
         run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/tests/titan-runtime-observability.test.js
       - name: WP1 profiles

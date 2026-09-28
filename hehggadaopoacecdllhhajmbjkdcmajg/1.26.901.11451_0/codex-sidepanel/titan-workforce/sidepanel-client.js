@@ -5,6 +5,7 @@ let timer=null;
 let conversationCandidates=[];
 let lastDiagnostics=null;
 let lastPreflight=null;
+let lastExtensionDiagnostics=null;
 let lastUiError=null;
 
 const clone=v=>v==null?v:JSON.parse(JSON.stringify(v));
@@ -77,13 +78,29 @@ async function bindAgent(id,tabId){
 }
 async function runDiagnostics(){
  const response=await command("diagnostics");
- lastDiagnostics=response.result||response.snapshot?.diagnostics||null;
+ const background=response.result||response.snapshot?.diagnostics||null;
+ let extensionRuntime=null;
+ if(typeof globalThis.runTitanExtensionDiagnostics==="function"){
+  try{extensionRuntime=await globalThis.runTitanExtensionDiagnostics()}
+  catch(error){
+   extensionRuntime={
+    ok:false,
+    criticalFailures:["extension diagnostics exception"],
+    error:String(error?.message||error)
+   };
+  }
+ }
+ lastExtensionDiagnostics=extensionRuntime;
+ lastDiagnostics=background&&typeof background==="object"
+  ?{...background,extensionRuntime}
+  :background;
  render();
  return lastDiagnostics;
 }
 async function runPreflight(){
  if(typeof globalThis.runTitanPreflight!=="function")throw new Error("Preflight module is not available");
  lastPreflight=await globalThis.runTitanPreflight();
+ lastExtensionDiagnostics=lastPreflight?.extensionRuntime||lastExtensionDiagnostics;
  render();
  return lastPreflight;
 }
@@ -201,8 +218,10 @@ function group(title,list){
 }
 function renderStatusBlock(){
  const d=diagnostics(),services=d?.services||snapshot?.services||{},usage=d?.usage||snapshot?.usage||null;
+ const extensionRuntime=d?.extensionRuntime||lastExtensionDiagnostics||lastPreflight?.extensionRuntime||null;
  const merge=d?.mergePressure??snapshot?.mergePressure,verification=d?.verification;
  return `<section class="status-grid">
+  <div><b>Extension runtime</b><br>${extensionRuntime?(extensionRuntime.ok?"PASS":"FAIL")+" · "+(extensionRuntime.criticalFailures?.length||0)+" critical":"not checked"}</div>
   <div><b>Services</b><br><span class="muted">${serviceSummary({services})}</span></div>
   <div><b>Native execution</b><br>Builders ${d?.nativeExecution?.buildersReady?"✓":"–"} · Orchestrator ${d?.nativeExecution?.orchestratorReady?"✓":"–"} · ${esc(d?.nativeExecution?.codexSource||"no codex source")}</div>
   <div><b>Verification backlog</b><br>${verification?.count??0}${verification?.backlog?.length?` · ${verification.backlog.map(x=>esc(x.id+":"+x.status)).join(", ")}`:""}</div>
