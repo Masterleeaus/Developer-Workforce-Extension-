@@ -1,3 +1,4 @@
+import {capabilitiesForExecutionContext} from "./execution-capabilities.js";
 import {SQUADS} from "./constants.js";
 import {TitanProvenanceGraph,createProvenanceNode} from "./provenance.js";
 
@@ -56,8 +57,7 @@ export class TitanWorkforceIntegration{
     if(Array.isArray(profile?.allowedCapabilities))profileCaps.push(...profile.allowedCapabilities);
    }
   }
-  const helper=globalThis.TitanExecutionCapabilities?.capabilitiesForExecutionContext;
-  return typeof helper==="function"?helper({executionClass:slot?.executionClass,profileCapabilities:profileCaps}):null;
+  return capabilitiesForExecutionContext({executionClass:slot?.executionClass,profileCapabilities:profileCaps});
  }
  async dispatchCodexPacket(builderId,packet,context={}){
   const slot=this.controller.registry.get(builderId);if(!slot||slot.executionClass!=="codex_builder")throw new Error("Codex builder required");
