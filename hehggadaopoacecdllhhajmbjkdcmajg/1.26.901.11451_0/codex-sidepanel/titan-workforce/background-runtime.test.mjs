@@ -36,6 +36,8 @@ function makeFactory(shared,counters){
    capabilities:{status:()=>({count:0,healthy:0,failing:0})},
    integration:{readiness:()=>({chat:true})},
    controls:{pauseAgent(){},resumeAgent(){}},
+   mergeController:{state:"open"},
+   lifecycle:{async run(){counters.maintenance++;state.lifecycle={lastRunAt:Date.now(),mergePressure:{state:"open"}};return state.lifecycle}},
    liveChat:{
     async tick(){
      counters.ticks++;
@@ -56,7 +58,7 @@ function makeFactory(shared,counters){
 }
 
 const shared={value:null};
-const counters={instances:0,ticks:0,dispatches:0,saves:0,disposals:0};
+const counters={instances:0,ticks:0,dispatches:0,saves:0,disposals:0,maintenance:0};
 const alarmsState=new Map();
 const alarms={
  async get(name){return alarmsState.get(name)||null},
@@ -77,6 +79,7 @@ const sidepanelClosed=true;
 assert.equal(sidepanelClosed,true);
 await Promise.all([owner.tick("sidepanel-closed"),owner.tick("sidepanel-closed")]);
 assert.equal(counters.dispatches,1,"concurrent ticks must not duplicate dispatch");
+assert.equal(counters.maintenance,1,"concurrent ticks must run lifecycle maintenance exactly once");
 assert.equal(shared.value.sendLedger.length,1,"send ledger persisted after background tick");
 
 await owner.suspend();
@@ -88,6 +91,7 @@ await ownerAfterRestart.ensure();
 assert.deepEqual(ownerAfterRestart.api.state.sendLedger,savedBeforeRestart.sendLedger,"restart rehydrates persisted ledger");
 await ownerAfterRestart.tick("restart");
 assert.equal(counters.dispatches,1,"restart must not resend persisted action key");
+assert.equal(counters.maintenance,2,"restarted runtime must resume lifecycle maintenance");
 assert.equal(ownerAfterRestart.snapshot().owner,"background-service-worker");
 
 await ownerAfterRestart.command("disarm",{reason:"test"});
