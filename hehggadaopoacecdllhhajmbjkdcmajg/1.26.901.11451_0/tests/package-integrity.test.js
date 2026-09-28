@@ -5,7 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const ROOT = path.resolve(__dirname, "..");
-const REPO_ROOT = path.resolve(ROOT, "..", "..", "..");
+const REPO_ROOT = path.resolve(ROOT, "..", "..");
 const read = rel => fs.readFileSync(path.join(ROOT, rel), "utf8");
 const exists = rel => fs.existsSync(path.join(ROOT, rel));
 
