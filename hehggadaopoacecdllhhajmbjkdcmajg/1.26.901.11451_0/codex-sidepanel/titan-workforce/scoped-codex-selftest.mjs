@@ -1,0 +1,13 @@
+import {createWorkforceState} from "./state.js";import {TitanExecutionServices} from "./execution-services.js";import {TitanMissionControl} from "./mission-control.js";import {TitanApprovalStore,persistApprovedScopeExpansion} from "./approvals.js";import {enforceScopedCodexRegistration} from "./native-bridge.js";
+const assert=(x,m)=>{if(!x)throw new Error(m)};const state=createWorkforceState(),missions=new TitanMissionControl(state);missions.upsert({id:"m1",title:"x",scope_paths:["src/**"]});
+const services=new TitanExecutionServices();let builds=0;const raw={source:"test",capabilities:["build"],async build(){builds++;return {commit:"c1"}}};services.register("codex",raw);
+let changed=["src/a.js"];const approvals=new TitanApprovalStore(state);const persist=persistApprovedScopeExpansion({state,missionControl:missions});
+enforceScopedCodexRegistration(services,{getChangedPaths:async()=>changed,requestApproval:r=>approvals.request(r),persistScopeExpansion:persist});
+assert(services.get("codex")!==raw&&services.get("codex").__scopeLocked===true,"raw codex still exposed");
+let r=await services.require("codex").build({builderId:"BUILDER_A",packet:{mission_id:"m1",scope_paths:["src/**"]}});assert(r.scopeVerification.ok,"in-scope build failed");
+changed=["src/a.js","secrets/x.js"];let pending=false,approvalId;try{await services.require("codex").build({builderId:"BUILDER_A",packet:{mission_id:"m1",scope_paths:["src/**"]}})}catch(e){pending=e.code==="SCOPE_APPROVAL_PENDING";approvalId=e.approvalId}assert(pending&&approvalId,"out-of-scope did not stop for approval");
+const decision=approvals.decide(approvalId,{approved:true,actor:"test"});const req=decision;
+const originalRequest=state.approvals[approvalId];
+const approvedService=enforceScopedCodexRegistration(services,{getChangedPaths:async()=>changed,requestApproval:async request=>({...decision,...request,violations:request.violations}),persistScopeExpansion:persist});
+r=await approvedService.build({builderId:"BUILDER_A",packet:{mission_id:"m1",scope_paths:["src/**"]}});assert(r.scopeVerification.ok&&r.scopeExpansion,"approved expansion failed");assert(missions.get("m1").scopePaths.includes("secrets/x.js"),"approved scope not persisted");
+console.log("Scoped Codex enforcement PASS");
