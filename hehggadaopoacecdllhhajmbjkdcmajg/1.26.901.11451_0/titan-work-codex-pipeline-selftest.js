@@ -139,8 +139,6 @@
   ok(!api.scopeAllowsPath("tests/*.js","tests/deep/a.js"),"single glob crossed segment");
   ok(api.scopeAllowsPath("src\\windows","src\\windows\\file.js"),"Windows separator normalization");
   ok(!api.scopeAllowsPath("src/pipeline","src/pipelines/file.js"),"sibling prefix escape");
-  expectThrow(()=>api.createBuilderResult({packet:Object.assign({},packet,{builder_slot:"builder-a"}),files_changed:["src/pipeline/../outside.js"]}),"builder traversal path must fail closed");
-
   expectThrow(() => api.compileApprovedImplementationDelta({
     mission: mission(),
     cycle_reviews: [continue5],
@@ -152,6 +150,7 @@
     "builder-b": { workload: 0, repository: "example/repo" }
   });
   ok(packet.builder_slot === "builder-b", "least-loaded compatible builder should be selected");
+  expectThrow(()=>api.createBuilderResult({packet:Object.assign({},packet,{builder_slot:"builder-a"}),files_changed:["src/pipeline/../outside.js"]}),"builder traversal path must fail closed");
 
   const conflictPacket = api.createCodexImplementationPacket(delta, { builder_slot: "builder-a" });
   const chosen = api.chooseBuilder(conflictPacket, {
