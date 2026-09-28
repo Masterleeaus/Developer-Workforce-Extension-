@@ -13,6 +13,7 @@ import {createConversationService} from "./conversation-service.js";
 import {TitanWorkforceControls} from "./controls.js";
 import {TitanMergeController} from "./merge-controller.js";
 import {installEngineeringCockpit} from "./cockpit.js";
+import {verifySystemReadiness,installSystemArmGuard,DEFAULT_REQUIRED_CHECKS} from "./system-verification.js";
 
 const KEY="titanDeveloperWorkforceV4";
 async function load(){
@@ -42,6 +43,15 @@ async function load(){
  globalThis.TitanMcpRegistry=mcp;
  globalThis.TitanDeveloperWorkforce=api;
  installEngineeringCockpit(api);
+ const verifySystem=()=>verifySystemReadiness({
+  state,controller,integration,services,capabilities,
+  requiredChecks:state.controls?.requiredReadinessChecks||DEFAULT_REQUIRED_CHECKS,
+  cockpitPresent:!!document.getElementById("titan-dev-workforce")
+ });
+ api.verifySystem=verifySystem;
+ globalThis.runTitanSystemVerification=verifySystem;
+ installSystemArmGuard(controller,verifySystem);
+ state.controls.systemVerification=verifySystem();
  await api.save();
  window.dispatchEvent(new CustomEvent("titan-workforce:ready",{detail:{schemaVersion:state.schemaVersion,readiness:integration.readiness()}}));
  return api;
