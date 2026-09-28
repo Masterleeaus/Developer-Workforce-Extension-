@@ -16,6 +16,7 @@ import {installEngineeringCockpit} from "./cockpit.js";
 import {TitanApprovalStore,persistApprovedScopeExpansion} from "./approvals.js";
 import {createAuthoritativeChangedPathResolver} from "./changed-path-evidence.js";
 import {enforceScopedCodexBuildCapability} from "./scoped-codex-capability.js";
+import {TitanLiveChatRuntime} from "./live-chat-runtime.js";
 
 const KEY="titanDeveloperWorkforceV4";
 async function load(){
@@ -42,8 +43,11 @@ async function load(){
  window.addEventListener("titan:stock-native-service",resyncCapabilities);
  const integration=new TitanWorkforceIntegration({state,controller,missionControl:missions,services,capabilities,audit});
  integration.bindGlobals();
+ const save=()=>chrome.storage.local.set({[KEY]:state});
+ const liveChat=new TitanLiveChatRuntime({state,integration,missionControl:missions,services,audit,save});
+ liveChat.start();
  const controls=new TitanWorkforceControls(controller,audit);const mergeController=new TitanMergeController({audit});
- const api={state,controller,missions,services,capabilities,mcp,approvals,executionCapabilities,integration,controls,mergeController,stopNativeEventBridge,stopCapabilityResync:()=>window.removeEventListener("titan:stock-native-service",resyncCapabilities),save:()=>chrome.storage.local.set({[KEY]:state})};
+ const api={state,controller,missions,services,capabilities,mcp,approvals,executionCapabilities,integration,liveChat,controls,mergeController,stopNativeEventBridge,stopCapabilityResync:()=>window.removeEventListener("titan:stock-native-service",resyncCapabilities),save};
  globalThis.TitanCapabilityBroker=capabilities;
  globalThis.TitanMcpRegistry=mcp;
  globalThis.TitanDeveloperWorkforce=api;
