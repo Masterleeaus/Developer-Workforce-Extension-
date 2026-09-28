@@ -7,8 +7,8 @@ const getGlobal=name=>globalThis[name]||null;
 const clone=x=>x==null?x:JSON.parse(JSON.stringify(x));
 
 export class TitanWorkforceIntegration{
- constructor({state,controller,missionControl,services,capabilities=null,audit=()=>{}}){
-  this.state=state;this.controller=controller;this.missionControl=missionControl;this.services=services;this.capabilities=capabilities;this.audit=audit;
+ constructor({state,controller,missionControl,services,capabilities=null,repositoryIntelligence=null,architectureIndex=null,audit=()=>{}}){
+  this.state=state;this.controller=controller;this.missionControl=missionControl;this.services=services;this.capabilities=capabilities;this.repositoryIntelligence=repositoryIntelligence;this.architectureIndex=architectureIndex;this.audit=audit;
   this.provenance=new TitanProvenanceGraph(state);
   this.chatScheduler=null;this.profileApi=null;this.pipelineApi=null;
  }
@@ -38,6 +38,19 @@ export class TitanWorkforceIntegration{
  normalizePipelineMission(m){
   return {id:m.id,title:m.title,goal:m.goal,repository:m.repository,scope_paths:m.scopePaths||[],constraints:m.constraints||[],acceptance_criteria:m.acceptanceCriteria||[],runtime_requirements:m.verificationRequirements||[],dependencies:m.dependencies||[]};
  }
+ contextForMission(missionId,{commit=null,changedPaths=[],maxFiles=12}={}){
+  const mission=this.missionControl.get(missionId);if(!mission)throw new Error("Unknown mission "+missionId);
+  const architecture=this.architectureIndex?.compile?.(mission)||null;
+  let repository=null,impact=null;
+  if(this.repositoryIntelligence){
+   try{repository=this.repositoryIntelligence.query(mission,{commit,maxFiles})}catch{}
+   if(repository&&changedPaths.length){try{impact=this.repositoryIntelligence.impact(repository.repository,repository.commit,changedPaths)}catch{}}
+  }
+  const out={missionId,architecture,repository,impact};
+  this.audit("mission-context-compiled",{missionId,architectureEntries:architecture?.entryIds||[],repositoryFiles:repository?.files?.map(x=>x.path)||[],changedPaths});
+  return out;
+ }
+
  async dispatchChatPass(workerId,action){
   const slot=this.controller.registry.get(workerId);if(!slot||slot.executionClass!=="chat_worker")throw new Error("Chat slot required");
   const service=this.services.require("chat");

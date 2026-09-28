@@ -33,6 +33,8 @@ jobs:
         run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/core-selftest.mjs
       - name: Live chat runtime handoff
         run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/live-chat-runtime.test.mjs
+      - name: Repository intelligence and architecture index
+        run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/repository-intelligence.test.mjs
       - name: WP4 control-state safety
         run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/control-selftest.mjs
       - name: Stock native bridge and fallback services
