@@ -75,8 +75,8 @@ export class TitanCapabilityBroker{
    const result=await Promise.race([
     Promise.resolve(entry.handler(args,{...context,classification,signal:controller.signal})),
     new Promise((_,reject)=>{timer=setTimeout(()=>{
-     controller.abort("timeout");
      reject(capabilityError("CAPABILITY_TIMEOUT","Capability timed out: "+name,{capability:name,timeoutMs}));
+     queueMicrotask(()=>controller.abort("timeout"));
     },timeoutMs)}),
     new Promise((_,reject)=>{
      controller.signal.addEventListener("abort",()=>{
