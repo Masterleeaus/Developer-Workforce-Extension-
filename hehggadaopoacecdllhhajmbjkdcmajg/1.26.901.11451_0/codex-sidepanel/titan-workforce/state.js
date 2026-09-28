@@ -26,7 +26,7 @@ export function createAgentSlot(id){
  return {id,executionClass:SLOT_CLASS[id],squad:SLOT_SQUAD[id]||null,status:"idle",missionId:null,profileIds:[],conversation:null,health:"unknown",control:createAgentControlState(),createdAt:now(),updatedAt:now()};
 }
 export function createWorkforceState(){
- return {schemaVersion:WORKFORCE_SCHEMA_VERSION,agents:Object.fromEntries(SLOT_IDS.map(id=>[id,createAgentSlot(id)])),missions:{},squads:{A:{status:"idle"},B:{status:"idle"}},controls:{armed:false,emergencyStop:false,emergencyReason:null,preflightPassed:false,preflightAt:null},provenance:{},createdAt:now(),updatedAt:now()};
+ return {schemaVersion:WORKFORCE_SCHEMA_VERSION,agents:Object.fromEntries(SLOT_IDS.map(id=>[id,createAgentSlot(id)])),missions:{},squads:{A:{status:"idle"},B:{status:"idle"}},controls:{armed:false,emergencyStop:false,emergencyReason:null,preflightPassed:false,preflightAt:null},provenance:{},convergence:{checkpoints:{},squads:{A:{last:null,history:[]},B:{last:null,history:[]}},missions:{}},objectiveProgress:{},createdAt:now(),updatedAt:now()};
 }
 
 function rawRecoverySnapshot(raw){
@@ -150,6 +150,19 @@ export function normalizeWorkforceState(raw={}){
   B:{...defaults.squads.B,...(plain(rawSquads.B)?rawSquads.B:{})}
  };
  if(!plain(source.provenance)){repairIssue(issues,"MALFORMED_PROVENANCE",{},true);next.provenance={}}else next.provenance=source.provenance;
+ const rawConvergence=plain(source.convergence)?source.convergence:{};
+ if(!plain(source.convergence))repairIssue(issues,"MISSING_OR_MALFORMED_CONVERGENCE",{},false);
+ next.convergence={
+  checkpoints:plain(rawConvergence.checkpoints)?rawConvergence.checkpoints:{},
+  squads:{
+   A:plain(rawConvergence.squads?.A)?rawConvergence.squads.A:{last:null,history:[]},
+   B:plain(rawConvergence.squads?.B)?rawConvergence.squads.B:{last:null,history:[]}
+  },
+  missions:plain(rawConvergence.missions)?rawConvergence.missions:{}
+ };
+ if(!Array.isArray(next.convergence.squads.A.history))next.convergence.squads.A.history=[];
+ if(!Array.isArray(next.convergence.squads.B.history))next.convergence.squads.B.history=[];
+ next.objectiveProgress=plain(source.objectiveProgress)?source.objectiveProgress:{};
  next.createdAt=Number.isFinite(source.createdAt)?source.createdAt:now();
  next.updatedAt=now();
 
@@ -187,6 +200,8 @@ export function validateWorkforceStateDetailed(s){
  if(!plain(s.squads))errors.push({code:"SQUADS_NOT_OBJECT"});
  if(!plain(s.controls))errors.push({code:"CONTROLS_NOT_OBJECT"});
  if(!plain(s.provenance))errors.push({code:"PROVENANCE_NOT_OBJECT"});
+ if(!plain(s.convergence)||!plain(s.convergence.checkpoints)||!plain(s.convergence.squads)||!plain(s.convergence.missions))errors.push({code:"CONVERGENCE_NOT_OBJECT"});
+ if(!plain(s.objectiveProgress))errors.push({code:"OBJECTIVE_PROGRESS_NOT_OBJECT"});
  if(plain(s.agents)&&plain(s.missions)){
   const seen=new Map();
   for(const id of SLOT_IDS){
