@@ -1,10 +1,12 @@
 import {capabilitiesForExecutionContext} from "./execution-capabilities.js";
 import {SQUADS} from "./constants.js";
+import {durableActionKey} from "./durability.js";
 import {TitanProvenanceGraph,createProvenanceNode} from "./provenance.js";
 
 const ROOT="../../../";
 const getGlobal=name=>globalThis[name]||null;
 const clone=x=>x==null?x:JSON.parse(JSON.stringify(x));
+const PRE_SIDE_EFFECT_CODES=new Set(["USAGE_THROTTLE","CODEX_CONCURRENCY_LIMIT","AGENT_EMERGENCY_STOPPED","AGENT_QUARANTINED","AGENT_PAUSED","SCOPE_APPROVAL_PENDING","SCOPE_LOCK_VIOLATION","CAPABILITY_UNAVAILABLE","CAPABILITY_DENIED","APPROVAL_REQUIRED","CREDENTIAL_APPROVAL_REQUIRED","CONVERSATION_IDENTITY_MISMATCH","CONVERSATION_BUSY"]);
 function requireAvailableSlot(slot){
  if(!slot)throw new Error("Agent slot unavailable");
  const c=slot.control||{};
@@ -14,8 +16,8 @@ function requireAvailableSlot(slot){
 }
 
 export class TitanWorkforceIntegration{
- constructor({state,controller,missionControl,services,capabilities=null,repositoryIntelligence=null,architectureIndex=null,usageGovernor=null,audit=()=>{}}){
-  this.state=state;this.controller=controller;this.missionControl=missionControl;this.services=services;this.capabilities=capabilities;this.repositoryIntelligence=repositoryIntelligence;this.architectureIndex=architectureIndex;this.usageGovernor=usageGovernor;this.audit=audit;
+ constructor({state,controller,missionControl,services,capabilities=null,repositoryIntelligence=null,architectureIndex=null,usageGovernor=null,sendLedger=null,save=async()=>{},audit=()=>{}}){
+  this.state=state;this.controller=controller;this.missionControl=missionControl;this.services=services;this.capabilities=capabilities;this.repositoryIntelligence=repositoryIntelligence;this.architectureIndex=architectureIndex;this.usageGovernor=usageGovernor;this.sendLedger=sendLedger;this.save=save;this.audit=audit;
   this.provenance=new TitanProvenanceGraph(state);
   this.chatScheduler=null;this.profileApi=null;this.pipelineApi=null;
  }
@@ -27,6 +29,25 @@ export class TitanWorkforceIntegration{
  }
  readiness(){
   return {profiles:!!this.profileApi,chat:!!this.chatScheduler,pipeline:!!this.pipelineApi,services:this.services?.status?.()||{}};
+ }
+ async durableExecute({key,kind,missionId=null,agentId=null,metadata={}},fn){
+  if(!this.sendLedger)return fn();
+  this.sendLedger.assertNew({key,kind,missionId,agentId,metadata});
+  await this.save();
+  try{
+   const result=await fn();
+   this.sendLedger.markSent(key,{resultObserved:true});
+   await this.save();
+   this.sendLedger.complete(key,{resultObserved:true});
+   await this.save();
+   return result;
+  }catch(error){
+   const entry=this.sendLedger.get(key);
+   if(entry?.status==="claimed"&&PRE_SIDE_EFFECT_CODES.has(error?.code))this.sendLedger.fail(key,error);
+   else if(entry?.status==="claimed"||entry?.status==="sent")this.sendLedger.markRecoveryRequired(key,error);
+   await this.save();
+   throw error;
+  }
  }
  castMission(missionId,slotId,{transfer=false,source="profile-cast"}={}){
   const mission=this.missionControl.get(missionId);if(!mission)throw new Error("Unknown mission "+missionId);
@@ -67,8 +88,12 @@ export class TitanWorkforceIntegration{
  }
  async requestWorkReview(squad,payload){
   const id=squad==="A"?"SUPERVISOR_A":"SUPERVISOR_B",slot=this.controller.registry.get(id),service=this.services.require("work");requireAvailableSlot(slot);
-  this.audit("supervisor-review-requested",{missionId:payload?.missionId||payload?.mission?.id||slot.missionId||null,supervisorId:id,reviewId:payload?.reviewId||payload?.review_id||null});
-  return service.review({supervisorId:id,conversation:slot.conversation,payload});
+  const missionId=payload?.missionId||payload?.mission?.id||slot.missionId||null;
+  const cycleId=payload?.chat_cycle?.cycle_id||payload?.cycle_id||payload?.cycleId||"";
+  const reviewId=payload?.reviewId||payload?.review_id||"";
+  const key=durableActionKey("work-review",missionId,cycleId,id,reviewId);
+  this.audit("supervisor-review-requested",{missionId,supervisorId:id,reviewId:reviewId||null});
+  return this.durableExecute({key,kind:"work-review",missionId,agentId:id,metadata:{squad,cycleId,reviewId}},()=>service.review({supervisorId:id,conversation:slot.conversation,payload}));
  }
  allowedCapabilitiesForSlot(slot){
   const profileCaps=[];
@@ -83,6 +108,8 @@ export class TitanWorkforceIntegration{
  async dispatchCodexPacket(builderId,packet,context={}){
   const slot=this.controller.registry.get(builderId);if(!slot||slot.executionClass!=="codex_builder")throw new Error("Codex builder required");requireAvailableSlot(slot);
   const missionId=packet?.mission?.id||packet?.mission_id||slot.missionId||null;
+  const key=durableActionKey("codex-build",missionId,builderId,packet?.packet_id||packet?.packetId||packet?.id||"");
+  return this.durableExecute({key,kind:"codex-build",missionId,agentId:builderId,metadata:{packetId:packet?.packet_id||packet?.packetId||packet?.id||null}},async()=>{
   const admission=this.usageGovernor?.allowCodex?.({mission:this.missionControl.get(missionId)})||{allowed:true};
   if(!admission.allowed){const e=new Error(admission.reason||"Codex usage throttled");e.code=admission.reason||"USAGE_THROTTLE";throw e}
   const current=this.state.usageGovernor?.metrics?.activeCodex||0;this.usageGovernor?.setConcurrency?.({codex:current+1});
@@ -100,9 +127,13 @@ export class TitanWorkforceIntegration{
    this.audit("tool-call-failed",{missionId,builderId,agentId:builderId,tool:"codex.build",code:error?.code||null});
    throw error;
   }finally{this.usageGovernor?.setConcurrency?.({codex:Math.max(0,(this.state.usageGovernor?.metrics?.activeCodex||1)-1)})}
+  });
  }
  async orchestrate(bundle,context={}){
   const slot=this.controller.registry.get("ORCHESTRATOR"),missionId=bundle?.mission?.id||bundle?.mission_id||slot?.missionId||null;requireAvailableSlot(slot);
+  const fingerprint=(bundle?.builder_results||bundle?.builderResults||[]).map(x=>x?.result_id||x?.resultId||"").join(",");
+  const key=durableActionKey("codex-orchestrate",missionId,bundle?.bundle_id||bundle?.bundleId||fingerprint);
+  return this.durableExecute({key,kind:"codex-orchestrate",missionId,agentId:slot.id},async()=>{
   const admission=this.usageGovernor?.allowCodex?.({mission:this.missionControl.get(missionId)})||{allowed:true};
   if(!admission.allowed){const e=new Error(admission.reason||"Codex usage throttled");e.code=admission.reason||"USAGE_THROTTLE";throw e}
   const current=this.state.usageGovernor?.metrics?.activeCodex||0;this.usageGovernor?.setConcurrency?.({codex:current+1});
@@ -119,5 +150,6 @@ export class TitanWorkforceIntegration{
    this.audit("tool-call-failed",{missionId,agentId:slot.id,tool:"codex.orchestrate",code:error?.code||null});
    throw error;
   }finally{this.usageGovernor?.setConcurrency?.({codex:Math.max(0,(this.state.usageGovernor?.metrics?.activeCodex||1)-1)})}
+  });
  }
 }
