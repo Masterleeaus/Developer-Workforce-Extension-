@@ -34,6 +34,26 @@ assert(verifyDiffScope(["src/titan-go/a.js","tests/x.test.js"],mission.scopePath
 const bad=verifyDiffScope(["src/titan-go/a.js","src/auth/x.js"],mission.scopePaths);assert(!bad.ok&&bad.violations[0]==="src/auth/x.js","scope violation missed");
 const pg=new TitanProvenanceGraph(s);pg.add(createProvenanceNode({id:"p1",type:"chat-cycle",missionId:"scope1"}));pg.add(createProvenanceNode({id:"p2",type:"approved-delta",missionId:"scope1",parentIds:["p1"]}));
 assert(pg.ancestry("p2").length===2,"provenance ancestry failed");
+pg.add(createProvenanceNode({id:"p3",type:"chat-cycle",missionId:"scope1",parentIds:["p1"],agentId:"A1"}));
+pg.add(createProvenanceNode({id:"p4",type:"orchestrator-decision",missionId:"scope1",parentIds:["p2","p3"]}));
+assert(pg.ancestry("p4").length===4,"shared provenance ancestor should be deduplicated");
+assert(pg.integrityErrors({missionId:"scope1"}).length===0,"valid provenance graph integrity");
+
+let missingParentBlocked=false;try{pg.add(createProvenanceNode({id:"p-missing",type:"bad",missionId:"scope1",parentIds:["does-not-exist"]}))}catch(e){missingParentBlocked=e.code==="PROVENANCE_PARENT_MISSING"}assert(missingParentBlocked,"missing provenance parent must fail closed");
+let selfParentBlocked=false;try{pg.add(createProvenanceNode({id:"p-self",type:"bad",missionId:"scope1",parentIds:["p-self"]}))}catch(e){selfParentBlocked=e.code==="PROVENANCE_SELF_PARENT"}assert(selfParentBlocked,"self-parent provenance must fail closed");
+mc.upsert({id:"scope2",title:"Other mission"});
+let crossMissionBlocked=false;try{pg.add(createProvenanceNode({id:"p-cross",type:"bad",missionId:"scope2",parentIds:["p1"]}))}catch(e){crossMissionBlocked=e.code==="PROVENANCE_CROSS_MISSION"}assert(crossMissionBlocked,"cross-mission provenance parent must fail closed");
+let unknownAgentBlocked=false;try{pg.add(createProvenanceNode({id:"p-agent",type:"bad",missionId:"scope1",agentId:"NOT_A_SLOT"}))}catch(e){unknownAgentBlocked=e.code==="UNKNOWN_PROVENANCE_AGENT"}assert(unknownAgentBlocked,"unknown provenance agent must fail closed");
+let unknownMissionBlocked=false;try{pg.add(createProvenanceNode({id:"p-mission",type:"bad",missionId:"missing-mission"}))}catch(e){unknownMissionBlocked=e.code==="UNKNOWN_PROVENANCE_MISSION"}assert(unknownMissionBlocked,"unknown provenance mission must fail closed");
+
+const corruptState=createWorkforceState(),corruptMc=new TitanMissionControl(corruptState);corruptMc.upsert({id:"cycle-mission",title:"Cycle"});
+corruptState.provenance={
+ ca:{id:"ca",type:"legacy",missionId:"cycle-mission",parentIds:["cb"],agentId:null,artifactId:null,metadata:{},at:1},
+ cb:{id:"cb",type:"legacy",missionId:"cycle-mission",parentIds:["ca"],agentId:null,artifactId:null,metadata:{},at:2}
+};
+const corruptGraph=new TitanProvenanceGraph(corruptState);
+assert(corruptGraph.integrityErrors({missionId:"cycle-mission"}).some(e=>e.code==="CYCLE"),"legacy provenance cycle must be detected");
+let corruptReplayBlocked=false;try{corruptGraph.ancestry("ca")}catch(e){corruptReplayBlocked=e.code==="PROVENANCE_INTEGRITY_ERROR"}assert(corruptReplayBlocked,"ancestry/replay must fail closed on corrupt provenance");
 
 
 import {TitanExecutionServices} from "./execution-services.js";
