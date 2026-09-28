@@ -37,7 +37,7 @@ assert(pg.ancestry("p2").length===2,"provenance ancestry failed");
 
 
 import {TitanExecutionServices} from "./execution-services.js";
-import {TitanWorkforceController} from "./controller.js";
+import {TitanWorkforceController,validateAssignmentInvariants} from "./controller.js";
 import {TitanWorkforceControls} from "./controls.js";
 import {TitanWorkforceIntegration} from "./integration.js";
 import {installLegacyNativeBridge} from "./native-bridge.js";
@@ -89,9 +89,51 @@ let pageIdentityBlocked=false;try{await safeConversationService.send({conversati
 globalThis.chrome=priorChrome;
 
 
+const assignmentState=createWorkforceState();
+const assignmentEvents=[];
+const assignmentMissions=new TitanMissionControl(assignmentState);
+assignmentMissions.upsert({id:"dep-ready",title:"Dependency",status:"verified"});
+assignmentMissions.upsert({id:"assign-target",title:"Target",dependencies:["dep-ready"]});
+assignmentMissions.upsert({id:"slot-old",title:"Old slot mission"});
+assignmentMissions.upsert({id:"slot-next",title:"Next slot mission"});
+assignmentMissions.upsert({id:"blocked-target",title:"Blocked",dependencies:["missing-dep"]});
+const assignmentController=new TitanWorkforceController(assignmentState,{missionControl:assignmentMissions,audit:(type,data)=>assignmentEvents.push({type,data})});
+const firstAssignment=assignmentMissions.assign("assign-target","A1",{expectedExecutionClass:"chat_worker",profileIds:["architecture"]});
+assert(firstAssignment.mission.assignedAgent==="A1"&&firstAssignment.slot.missionId==="assign-target","Mission Control assignment must update both sides");
+assert(validateAssignmentInvariants(assignmentState).ok,"assignment invariants after initial assignment");
+
+assignmentController.assignMission("slot-old","A2",{expectedExecutionClass:"chat_worker"});
+let doubleMissionBlocked=false;try{assignmentController.assignMission("assign-target","A2",{expectedExecutionClass:"chat_worker"})}catch(e){doubleMissionBlocked=e.code==="MISSION_ALREADY_ASSIGNED"}assert(doubleMissionBlocked,"mission double-assignment must fail closed");
+let occupiedSlotBlocked=false;try{assignmentController.assignMission("slot-next","A2",{expectedExecutionClass:"chat_worker"})}catch(e){occupiedSlotBlocked=e.code==="AGENT_ALREADY_ASSIGNED"}assert(occupiedSlotBlocked,"active slot replacement must require transfer");
+
+assignmentController.assignMission("assign-target","A2",{expectedExecutionClass:"chat_worker",transfer:true,source:"test-transfer"});
+assert(assignmentController.registry.get("A1").missionId===null,"transfer must clear previous slot");
+assert(assignmentMissions.get("slot-old").assignedAgent===null&&assignmentMissions.get("slot-old").status==="queued","transfer must release previous slot mission");
+assert(assignmentMissions.get("assign-target").assignedAgent==="A2"&&assignmentController.registry.get("A2").missionId==="assign-target","transfer must set new reverse references");
+assert(assignmentMissions.get("assign-target").assignmentHistory.some(x=>x.type==="transferred"),"transfer history must be recorded");
+assert(validateAssignmentInvariants(assignmentState).ok,"assignment invariants after transfer");
+
+let dependencyBlocked=false;try{assignmentController.assignMission("blocked-target","A3",{expectedExecutionClass:"chat_worker"})}catch(e){dependencyBlocked=e.code==="MISSION_DEPENDENCY_BLOCKED"}assert(dependencyBlocked,"unresolved mission dependency must block assignment");
+let classBlocked=false;try{assignmentController.assignMission("slot-next","BUILDER_A",{expectedExecutionClass:"chat_worker"})}catch(e){classBlocked=e.code==="EXECUTION_CLASS_MISMATCH"}assert(classBlocked,"execution-class mismatch must fail closed");
+
+assignmentMissions.cancel("assign-target","test cancel");
+assert(assignmentController.registry.get("A2").missionId===null&&assignmentMissions.get("assign-target").assignedAgent===null,"terminal mission transition must clear reverse assignment");
+assert(validateAssignmentInvariants(assignmentState).ok,"assignment invariants after terminal cleanup");
+
+assignmentMissions.upsert({id:"complete-target",title:"Complete target"});
+assignmentController.assignMission("complete-target","A4",{expectedExecutionClass:"chat_worker"});
+assignmentMissions.complete("complete-target");
+assert(assignmentController.registry.get("A4").missionId===null,"complete mission must release slot");
+assignmentMissions.upsert({id:"verify-target",title:"Verify target"});
+assignmentController.assignMission("verify-target","A5",{expectedExecutionClass:"chat_worker"});
+assignmentMissions.verify("verify-target");
+assert(assignmentController.registry.get("A5").missionId===null,"verified mission must release slot");
+
 const controlState=createWorkforceState();
 const controlEvents=[];
-const controlController=new TitanWorkforceController(controlState,{audit:(type,data)=>controlEvents.push({type,data})});
+const controlMissions=new TitanMissionControl(controlState);
+for(const id of ["control-m1","control-m3","control-b1","control-b2","other"])controlMissions.upsert({id,title:id});
+const controlController=new TitanWorkforceController(controlState,{missionControl:controlMissions,audit:(type,data)=>controlEvents.push({type,data})});
 const controlApi=new TitanWorkforceControls(controlController,(type,data)=>controlEvents.push({type,data}));
 controlController.assign("A1",{missionId:"control-m1"});
 const a1=controlController.registry.get("A1");
