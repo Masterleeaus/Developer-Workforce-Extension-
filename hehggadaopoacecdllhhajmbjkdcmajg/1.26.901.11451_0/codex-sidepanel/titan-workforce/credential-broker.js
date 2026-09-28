@@ -73,7 +73,7 @@ export class TitanCredentialBroker{
     if(metadata.approvalState!=="approved"){
       if(!this.approvalStore)throw brokerError("CREDENTIAL_APPROVAL_REQUIRED","Credential capability requires approval: "+name,{name});
       const request={
-        type:"secret-access",
+        type:"secret-access:"+name,
         missionId:context.missionId||null,
         packetId:context.packetId||null,
         credential:name,
