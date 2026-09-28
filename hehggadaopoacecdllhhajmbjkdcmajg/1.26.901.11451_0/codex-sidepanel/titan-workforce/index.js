@@ -32,3 +32,4 @@ export * from "./high-impact-policy.js";
 export * from "./maintenance.js";
 
 export * from "./cockpit-diagnostics.js";
+\nexport * from "./observability.js";\n
