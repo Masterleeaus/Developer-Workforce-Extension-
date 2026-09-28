@@ -70,6 +70,7 @@ export class TitanWorkCodexRuntime{
   missionControl,
   services,
   capabilities,
+  gitSubstrate=null,
   pipelineApi=globalThis.TitanWorkCodexPipeline,
   audit=()=>{},
   save=async()=>{}
@@ -80,7 +81,8 @@ export class TitanWorkCodexRuntime{
   this.integration=integration;
   this.missionControl=missionControl;
   this.services=services;
-  this.capabilities=capabilities;\n  this.gitSubstrate=gitSubstrate;
+  this.capabilities=capabilities;
+  this.gitSubstrate=gitSubstrate;
   this.pipeline=pipelineApi;
   this.audit=audit;
   this.save=save;
@@ -205,7 +207,8 @@ export class TitanWorkCodexRuntime{
   const builderId=BUILDER_ID[packet.builder_slot];
   if(!builderId)throw error("BUILDER_ROUTE_INVALID","Unknown builder route "+packet.builder_slot);
   const builder=this.integration.controller.registry.get(builderId);
-  builder.missionId=mission.id;builder.status="building";builder.updatedAt=Date.now();
+  this.integration.controller.assignMission(mission.id,builderId,{profileIds:builder.profileIds||[],expectedExecutionClass:"codex_builder",transfer:true,source:"work-codex-runtime"});
+  builder.status="building";builder.updatedAt=Date.now();
   this.missionControl.transition(mission.id,"building","Codex builder "+builderId);
   this.audit("codex-builder-dispatched",{missionId:mission.id,builderId,packetId:packet.packet_id});
   const raw=await this.integration.dispatchCodexPacket(builderId,packet,{missionId:mission.id});
@@ -232,6 +235,10 @@ export class TitanWorkCodexRuntime{
   if(!github||typeof github.verify!=="function")throw error("GITHUB_VERIFICATION_UNAVAILABLE","Authoritative GitHub verification service unavailable");
   const githubTruth=await github.verify({mission});
   run.verification.push({type:"github",at:Date.now(),evidence:clone(githubTruth)});
+  if(this.gitSubstrate?.get?.(mission.id)){
+   this.gitSubstrate.markCI(mission.id,{status:githubTruth.ciPassed?"success":githubTruth.ciStatus||"failed",headSha:githubTruth.headSha||builderResult.commit?.sha||null});
+   if(builderResult.pr)this.gitSubstrate.markPullRequest(mission.id,{number:builderResult.pr.number,url:builderResult.pr.url||null,state:githubTruth.merged?"merged":"open",headSha:githubTruth.headSha||null});
+  }
 
   let runtimeEvidence=null;
   const runtimeRequired=(mission.runtimeRequirements||mission.runtime_requirements||mission.verificationRequirements||[]).length>0;
@@ -256,7 +263,8 @@ export class TitanWorkCodexRuntime{
    github_truth:githubTruth
   });
   const orchestrator=this.integration.controller.registry.get("ORCHESTRATOR");
-  orchestrator.missionId=mission.id;orchestrator.status="reviewing";orchestrator.updatedAt=Date.now();
+  this.integration.controller.assignMission(mission.id,"ORCHESTRATOR",{profileIds:orchestrator.profileIds||[],expectedExecutionClass:"codex_orchestrator",transfer:true,source:"work-codex-runtime"});
+  orchestrator.status="reviewing";orchestrator.updatedAt=Date.now();
   const rawDecision=await this.integration.orchestrate({
    ...bundle,
    output_contract:{format:"json",decision:["COMPLETE","REPAIR","RESEARCH","VERIFY","BLOCKED"],required:["decision","reason"]}
@@ -272,7 +280,11 @@ export class TitanWorkCodexRuntime{
  }
  routeMissionDecision(missionId,decision,route){
   switch(decision.state){
-   case "COMPLETE": {\n    const run=this.run(missionId),g=run.verification.find(x=>x.type==="github")?.evidence||{};\n    if(this.gitSubstrate?.get?.(missionId))this.gitSubstrate.assertGitHubTruthComplete(missionId,{merged:g.merged===true,mergeCommit:g.mergeCommit||g.mergeCommitSha||g.commitSha||g.headSha||null,ciStatus:g.ciPassed?"success":g.ciStatus,verified:true});\n    this.missionControl.transition(missionId,"complete",decision.reason);break;\n   }
+   case "COMPLETE": {
+    const run=this.run(missionId),g=run.verification.find(x=>x.type==="github")?.evidence||{};
+    if(this.gitSubstrate?.get?.(missionId))this.gitSubstrate.assertGitHubTruthComplete(missionId,{merged:g.merged===true,mergeCommit:g.mergeCommit||g.mergeCommitSha||g.commitSha||g.headSha||null,ciStatus:g.ciPassed?"success":g.ciStatus,verified:true});
+    this.missionControl.transition(missionId,"complete",decision.reason);break;
+   }
    case "REPAIR": this.missionControl.transition(missionId,"repair",decision.reason);break;
    case "RESEARCH": this.missionControl.transition(missionId,"research",decision.reason);break;
    case "VERIFY": this.missionControl.transition(missionId,"verification",decision.reason);break;
