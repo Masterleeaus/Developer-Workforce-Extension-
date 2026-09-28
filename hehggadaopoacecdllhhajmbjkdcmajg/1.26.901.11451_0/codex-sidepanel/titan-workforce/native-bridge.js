@@ -57,8 +57,8 @@ export function createScopedCodexService(codex,{getChangedPaths,audit=()=>{},req
    if(!check.ok){
     const request=requireScopeExpansion({id:packet?.mission?.id||packet?.mission_id,scopePaths:scope},changed);
     const approval=await requestApproval(request);
-    if(!approval?.approved){
-     const e=new Error("Codex diff violates mission scope: "+check.violations.join(", "));e.code="SCOPE_LOCK_VIOLATION";e.scope=check;throw e;
+    if(!approval?.approved&&approval?.status!=="approved"){
+     const e=new Error(approval?.status==="pending"?"Scope expansion approval pending":"Codex diff violates mission scope: "+check.violations.join(", "));e.code=approval?.status==="pending"?"SCOPE_APPROVAL_PENDING":"SCOPE_LOCK_VIOLATION";e.scope=check;e.approvalId=approval?.id||null;throw e;
     }
     await persistScopeExpansion({request,approval,packet,builderId,changedPaths:changed});
     const expanded=[...new Set([...scope,...check.violations])];
