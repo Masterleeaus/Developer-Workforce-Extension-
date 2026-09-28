@@ -66,6 +66,7 @@ export class TitanRuntimeOwner{
    services:clone(api.services?.status?.()||{}),
    mcp:clone(api.mcp?.status?.()||null),
    capabilities:clone(api.capabilities?.status?.()||null),
+   usage:clone(api.usageGovernor?.status?.()||null),
    readiness:clone(api.integration?.readiness?.()||null)
   };
  }
@@ -83,6 +84,8 @@ export class TitanRuntimeOwner{
    case "bindConversation": result=await api.liveChat.bindConversation(payload.workerId,payload.conversation);break;
    case "startCycle": result=await api.liveChat.startCycle(payload.workerId,payload.contract||payload);break;
    case "tick": result=await this.tick("command");break;
+   case "usageStatus": result=api.usageGovernor?.status?.()||null;break;
+   case "usageClearRestriction": result=api.usageGovernor?.clearRestriction?.()||null;await api.save();break;
    case "pauseAgent": result=api.controls.pauseAgent(payload.id,payload.reason);await api.save();break;
    case "resumeAgent": result=api.controls.resumeAgent(payload.id);await api.save();break;
    default: throw new Error("Unknown workforce runtime command: "+action);
