@@ -70,7 +70,10 @@ export class TitanLiveChatRuntime{
   const slot=this.integration.controller.registry.get(workerId);
   if(!slot)return;
   slot.status=String(worker.state||"idle").toLowerCase().replaceAll("_","-");
-  slot.missionId=worker.missionId||slot.missionId||null;
+  const mission=worker.missionId?this.missionControl.get(worker.missionId):null;
+  if(!worker.missionId)slot.missionId=null;
+  else if(!mission?.assignedAgent||mission.assignedAgent===workerId)slot.missionId=worker.missionId;
+  else if(slot.missionId===worker.missionId)slot.missionId=null;
   slot.health=worker.health||slot.health||"unknown";
   slot.updatedAt=Date.now();
  }
@@ -96,9 +99,20 @@ export class TitanLiveChatRuntime{
   const mission=this.missionControl.get(missionId);
   if(!mission)throw new Error("Unknown mission "+missionId);
   if(!slot.conversation?.key)throw new Error("Worker conversation is not bound");
+  if(!Array.isArray(queue)||queue.length!==5||queue.some(x=>typeof x!=="string"||!x.trim()))throw new Error("five-pass queue must contain exactly 5 instructions");
+  const priorOwner=mission.assignedAgent||null;
+  const priorSlot=priorOwner?this.integration.controller.registry.get(priorOwner):null;
+  const priorProfileIds=priorSlot?.profileIds?[...priorSlot.profileIds]:[];
+  this.missionControl.assign(missionId,workerId,{transfer:true,expectedExecutionClass:"chat_worker",profileIds:[...(slot.profileIds||[])],source:"chat-cycle-start"});
   this.scheduler.bindConversation(workerId,slot.conversation.key);
-  const worker=this.scheduler.startCycle(workerId,{missionId,cycleId,queue});
-  this.missionControl.assign(missionId,workerId);
+  let worker;
+  try{
+   worker=this.scheduler.startCycle(workerId,{missionId,cycleId,queue});
+  }catch(error){
+   if(priorOwner)this.missionControl.assign(missionId,priorOwner,{transfer:true,expectedExecutionClass:priorSlot?.executionClass||null,profileIds:priorProfileIds,source:"chat-cycle-rollback"});
+   else this.missionControl.clearAssignment?.(missionId,"chat-cycle-start-failed");
+   throw error;
+  }
   const obs=await this.services.require("chat").observe(slot.conversation).catch(()=>null);
   this.state.chatRuntime.observations[workerId]={
    assistantCount:Number(obs?.assistantCount||0),
@@ -245,14 +259,15 @@ export class TitanLiveChatRuntime{
   const supervisorId=squad==="A"?"SUPERVISOR_A":"SUPERVISOR_B";
   const supervisor=this.integration.controller.registry.get(supervisorId);
   if(!supervisor)throw new Error("Supervisor slot unavailable");
-  supervisor.missionId=event.missionId;
-  supervisor.status="reviewing";
-  supervisor.updatedAt=Date.now();
 
   if(this.integration.profileApi){
-   const cast=this.integration.castMission(event.missionId,supervisorId);
+   const cast=this.integration.castMission(event.missionId,supervisorId,{transfer:true,source:"work-review"});
    request.profile_context=cast.compiled.text;
+  }else{
+   this.missionControl.assign(event.missionId,supervisorId,{transfer:true,expectedExecutionClass:"work_supervisor",source:"work-review"});
   }
+  supervisor.status="reviewing";
+  supervisor.updatedAt=Date.now();
 
   const pendingId=request.review_id||request.reviewId||[event.missionId,event.cycleId,event.workerId,"review"].join(":");
   this.state.chatRuntime.pendingReviews[pendingId]={

@@ -1,6 +1,13 @@
-import {createWorkforceState} from "./state.js";import {TitanWorkforceController} from "./controller.js";import {TitanWorkforceControls} from "./controls.js";
-const assert=(x,m)=>{if(!x)throw new Error(m)};const s=createWorkforceState(),c=new TitanWorkforceController(s),ctl=new TitanWorkforceControls(c);
-c.markReconciled();c.assign("A1",{missionId:"m1"});ctl.quarantine("A1","bad");
+import {createWorkforceState} from "./state.js";
+import {TitanWorkforceController} from "./controller.js";
+import {TitanWorkforceControls} from "./controls.js";
+import {TitanMissionControl} from "./mission-control.js";
+const assert=(x,m)=>{if(!x)throw new Error(m)};
+const s=createWorkforceState(),mc=new TitanMissionControl(s),c=new TitanWorkforceController(s,{missionControl:mc}),ctl=new TitanWorkforceControls(c);
+mc.upsert({id:"m1",title:"control test mission"});
+c.markReconciled();
+c.assign("A1",{missionId:"m1"});
+ctl.quarantine("A1","bad");
 let threw=false;try{ctl.resumeAgent("A1")}catch{threw=true}assert(threw,"quarantine bypass");
 ctl.pauseSquad("A");assert(ctl.effectiveState("A1")==="quarantined","squad pause erased quarantine");
 ctl.pauseAgent("A2");c.emergencyStop("test");assert(ctl.effectiveState("A1")==="emergency-stopped","estop missing");assert(s.agents.A1.status==="assigned","estop overwrote mission status");
