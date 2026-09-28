@@ -16,6 +16,12 @@ function assert(value,message){if(!value)throw new Error(message)}
 const state=createWorkforceState();
 const missions=new TitanMissionControl(state);
 const controller=new TitanWorkforceController(state,{missionControl:missions});
+let preflightBlocked=false;
+try{controller.arm()}catch(error){preflightBlocked=error.code==="PREFLIGHT_REQUIRED"}
+assert(preflightBlocked,"workforce armed before required preflight");
+state.controls.preflightPassed=true;state.controls.preflightAt=Date.now();
+controller.arm();assert(state.controls.armed===true,"workforce failed to arm after preflight");
+controller.disarm("selftest");
 const mission=missions.upsert({
  id:"system-selftest",
  title:"Verify 15-agent integration",
