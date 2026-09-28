@@ -36,6 +36,8 @@ export async function runTitanPreflight(){
   registered=await chrome.scripting.getRegisteredContentScripts({ids:["codex-webmcp","codex-webmcp-bridge"]}).catch(()=>[]);
  }catch{}
  add("WebMCP content scripts",webMcpAssets,"registered "+registered.length+"/2 (feature gate may be off)");
+ const usage=api?.usageGovernor?.status?.();
+ add("Usage governor",!!api?.usageGovernor,usage?JSON.stringify({state:usage.state,chat:usage.policy.chatConcurrency,codex:usage.policy.codexConcurrency,contextScale:usage.policy.contextScale}):"missing");
  const cap=api?.capabilities?.status?.();
  add("Capability broker",!!api?.capabilities,cap?JSON.stringify({count:cap.count,healthy:cap.healthy,failing:cap.failing}):"missing");
  const requiredCapabilities=["repo.search","codex.build","codex.orchestrate","runtime.verify"];
