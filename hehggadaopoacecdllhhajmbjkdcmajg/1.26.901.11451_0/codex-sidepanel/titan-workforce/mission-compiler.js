@@ -91,7 +91,7 @@ export class TitanMissionCompiler{
    failure=classifyCIFailure(input);
    const route=recoveryRoute(failure);
    verificationRequirements=uniq([...verificationRequirements,"ci_repair"]);
-   if(route?.profile)testPlan.push("Route repair through "+route.profile);
+   if(route)testPlan.push("Route repair through "+route);
   }
   const raw={
    ...input,
