@@ -4,22 +4,38 @@ function legacyServices(){
  const src=globalThis.TitanNativeServices?.services;
  return src instanceof Map?src:new Map();
 }
+function normalizeCodex(codex){
+ if(!codex)return null;
+ const review=typeof codex.review==="function"?codex.review.bind(codex):null;
+ const build=typeof codex.build==="function"?codex.build.bind(codex):typeof codex.execute==="function"?codex.execute.bind(codex):null;
+ const orchestrate=typeof codex.orchestrate==="function"?codex.orchestrate.bind(codex):review;
+ if(!review&&!build&&!orchestrate)return null;
+ return {source:codex.source||"native",capabilities:["review","build","orchestrate"].filter(k=>typeof ({review,build,orchestrate})[k]==="function"),review,build,orchestrate};
+}
+export function registerNativeService(services,kind,service,audit=()=>{}){
+ if(!service)return false;
+ const normalized=kind==="codex"?normalizeCodex(service):service;
+ if(!normalized)return false;
+ services.register(kind,normalized);
+ audit("native-service-registered",{kind,source:normalized.source||service.source||"native",capabilities:normalized.capabilities||[]});
+ return true;
+}
 export function installLegacyNativeBridge(services,audit=()=>{}){
  const legacy=legacyServices();
- for(const kind of ["github","repository","runtime"]){
-  const s=legacy.get(kind);if(s)services.register(kind,s);
- }
- const codex=legacy.get("codex");
- if(codex){
-  services.register("codex",{
-   capabilities:["review","build","orchestrate"],
-   review:codex.review?.bind(codex),
-   build:codex.build?.bind(codex)||codex.execute?.bind(codex)||null,
-   orchestrate:codex.orchestrate?.bind(codex)||codex.review?.bind(codex)
-  });
- }
+ for(const kind of ["github","repository","runtime","codex"])registerNativeService(services,kind,legacy.get(kind),audit);
  audit("native-services-bridged",{available:services.status()});
  return services.status();
+}
+export function installStockNativeEventBridge(services,audit=()=>{},target=globalThis){
+ if(!target?.addEventListener)return ()=>{};
+ const handler=e=>{
+  const d=e?.detail||{},kind=d.kind||d.name,service=d.service;
+  if(!["codex","github","repository","runtime"].includes(kind)||!service)return;
+  registerNativeService(services,kind,service,audit);
+ };
+ target.addEventListener("titan:stock-native-service",handler);
+ audit("stock-native-event-bridge-installed",{});
+ return ()=>target.removeEventListener?.("titan:stock-native-service",handler);
 }
 export function installConversationServices(services,{chat=null,work=null}={},audit=()=>{}){
  if(chat)services.register("chat",chat);
