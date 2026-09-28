@@ -1,4 +1,5 @@
 import {SQUADS} from "./constants.js";
+import {canonicalSlotId,canonicalSupervisorForSquad,canonicalizePipelineSlot} from "./slot-id-adapter.js";
 import {TitanProvenanceGraph,createProvenanceNode} from "./provenance.js";
 
 const ROOT="../../../";
@@ -23,12 +24,13 @@ export class TitanWorkforceIntegration{
  castMission(missionId,slotId){
   const mission=this.missionControl.get(missionId);if(!mission)throw new Error("Unknown mission "+missionId);
   if(!this.profileApi)throw new Error("Profile package unavailable");
-  const slot=this.controller.registry.get(slotId);if(!slot)throw new Error("Unknown slot "+slotId);
+  const canonical=canonicalSlotId(slotId);
+  const slot=this.controller.registry.get(canonical);if(!slot)throw new Error("Unknown slot "+canonical);
   const cast=this.profileApi.selectProfilesForMission(mission,{executionClass:slot.executionClass});
   const compiled=this.profileApi.compileProfileContext(cast,{executionClass:slot.executionClass});
-  this.controller.assign(slotId,{missionId,profileIds:compiled.profileIds});
-  this.audit("mission-cast",{missionId,slotId,profiles:compiled.profileIds});
-  return {mission:clone(mission),slot:clone(this.controller.registry.get(slotId)),cast,compiled};
+  this.controller.assign(canonical,{missionId,profileIds:compiled.profileIds});
+  this.audit("mission-cast",{missionId,slotId:canonical,inputSlotId:slotId,profiles:compiled.profileIds});
+  return {mission:clone(mission),slot:clone(this.controller.registry.get(canonical)),cast,compiled};
  }
  squadForWorker(workerId){if(SQUADS.A.includes(workerId))return"A";if(SQUADS.B.includes(workerId))return"B";return null}
  recordArtifact({id,type,missionId,parentIds=[],agentId=null,artifactId=null,metadata={}}){
@@ -45,12 +47,28 @@ export class TitanWorkforceIntegration{
   this.audit("chat-pass-sent",{workerId,missionId:slot.missionId,key:action.key});return result;
  }
  async requestWorkReview(squad,payload){
-  const id=squad==="A"?"SUPERVISOR_A":"SUPERVISOR_B",slot=this.controller.registry.get(id),service=this.services.require("work");
+  const id=canonicalSupervisorForSquad(squad),slot=this.controller.registry.get(id),service=this.services.require("work");
+  this.audit("work-review-routed",{squad,supervisorId:id,pipelineSupervisorId:payload?.supervisor_slot||payload?.supervisorSlot||null,missionId:slot?.missionId||payload?.mission?.id||null});
   return service.review({supervisorId:id,conversation:slot.conversation,payload});
  }
+ async requestWorkReviewForPipelineSlot(supervisorId,payload){
+  const mapped=canonicalizePipelineSlot(supervisorId,"work_supervisor");
+  const slot=this.controller.registry.get(mapped.canonicalSlotId),service=this.services.require("work");
+  this.audit("work-review-routed",{supervisorId:mapped.canonicalSlotId,pipelineSupervisorId:mapped.pipelineSlotId,missionId:slot?.missionId||payload?.mission?.id||null});
+  return service.review({supervisorId:mapped.canonicalSlotId,conversation:slot.conversation,payload});
+ }
  async dispatchCodexPacket(builderId,packet){
-  const slot=this.controller.registry.get(builderId);if(!slot||slot.executionClass!=="codex_builder")throw new Error("Codex builder required");
-  return this.services.require("codex").build({builderId,packet});
+  const mapped=canonicalizePipelineSlot(builderId,"codex_builder");
+  const packetSlot=packet?.builder_slot||packet?.builderSlot||null;
+  if(packetSlot){
+   const packetMapped=canonicalizePipelineSlot(packetSlot,"codex_builder");
+   if(packetMapped.canonicalSlotId!==mapped.canonicalSlotId){
+    const e=new Error("Builder packet slot does not match dispatch slot");e.code="BUILDER_SLOT_MISMATCH";e.builderId=mapped.canonicalSlotId;e.packetBuilderId=packetMapped.canonicalSlotId;throw e;
+   }
+  }
+  const slot=this.controller.registry.get(mapped.canonicalSlotId);if(!slot||slot.executionClass!=="codex_builder")throw new Error("Codex builder required");
+  this.audit("codex-packet-routed",{builderId:mapped.canonicalSlotId,pipelineBuilderId:mapped.pipelineSlotId,missionId:packet?.mission?.id||packet?.mission_id||slot.missionId||null,packetId:packet?.packet_id||packet?.packetId||null});
+  return this.services.require("codex").build({builderId:mapped.canonicalSlotId,packet});
  }
  async orchestrate(bundle){
   const slot=this.controller.registry.get("ORCHESTRATOR");
