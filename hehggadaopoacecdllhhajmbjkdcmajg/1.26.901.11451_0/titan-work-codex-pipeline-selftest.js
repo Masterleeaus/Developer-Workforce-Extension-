@@ -155,6 +155,31 @@
     "builder-b": { workload: 0, repository: "example/repo" }
   }), "explicit builder assignment must still honor ownership conflicts");
 
+  const depDelta = api.compileApprovedImplementationDelta({
+    mission: mission(),
+    cycle_reviews: [review],
+    required_changes: ["dependent change"],
+    scope_paths: ["src/dependent"],
+    expected_files: ["src/dependent/index.js"],
+    dependencies: ["mission-prereq"]
+  });
+  expectThrow(() => api.assignBuilder(depDelta, {}, {
+    "builder-a": { workload: 0, repository: "example/repo" },
+    "builder-b": { workload: 0, repository: "example/repo" },
+    completed_dependencies: []
+  }), "unresolved dependencies must block builder assignment");
+  const depPacket = api.assignBuilder(depDelta, {}, {
+    "builder-a": { workload: 1, repository: "example/repo" },
+    "builder-b": { workload: 0, repository: "example/repo" },
+    completed_dependencies: ["mission-prereq"]
+  });
+  ok(depPacket.builder_slot === "builder-b", "resolved dependencies should permit assignment");
+
+  expectThrow(() => api.assignBuilder(delta, {}, {
+    "builder-a": { workload: 0, repository: "example/repo", conflicting_files: ["src/pipeline/index.js"] },
+    "builder-b": { workload: 0, repository: "example/repo", conflicting_files: ["src/pipeline/index.js"] }
+  }), "explicit conflicting files must block builder assignment");
+
   const builderResult = api.createBuilderResult({
     packet,
     files_changed: ["src/pipeline/index.js"],
@@ -213,8 +238,28 @@
   })));
   ok(blocked.state === "BLOCKED", "builder blocker must route to BLOCKED");
 
-  ok(api.transition(api.PIPELINE_STATES.RESEARCH, api.PIPELINE_STATES.SUPERVISOR_REVIEW) === api.PIPELINE_STATES.SUPERVISOR_REVIEW, "valid transition should pass");
+  const validTransitions = [
+    [api.PIPELINE_STATES.RESEARCH, api.PIPELINE_STATES.SUPERVISOR_REVIEW],
+    [api.PIPELINE_STATES.SUPERVISOR_REVIEW, api.PIPELINE_STATES.RESEARCH],
+    [api.PIPELINE_STATES.SUPERVISOR_REVIEW, api.PIPELINE_STATES.DELTA_APPROVED],
+    [api.PIPELINE_STATES.DELTA_APPROVED, api.PIPELINE_STATES.BUILDER_DISPATCH],
+    [api.PIPELINE_STATES.BUILDER_DISPATCH, api.PIPELINE_STATES.BUILDING],
+    [api.PIPELINE_STATES.BUILDING, api.PIPELINE_STATES.ORCHESTRATOR_REVIEW],
+    [api.PIPELINE_STATES.ORCHESTRATOR_REVIEW, api.PIPELINE_STATES.BUILDING],
+    [api.PIPELINE_STATES.ORCHESTRATOR_REVIEW, api.PIPELINE_STATES.RESEARCH],
+    [api.PIPELINE_STATES.ORCHESTRATOR_REVIEW, api.PIPELINE_STATES.VERIFICATION],
+    [api.PIPELINE_STATES.ORCHESTRATOR_REVIEW, api.PIPELINE_STATES.BLOCKED],
+    [api.PIPELINE_STATES.ORCHESTRATOR_REVIEW, api.PIPELINE_STATES.COMPLETE],
+    [api.PIPELINE_STATES.VERIFICATION, api.PIPELINE_STATES.ORCHESTRATOR_REVIEW],
+    [api.PIPELINE_STATES.VERIFICATION, api.PIPELINE_STATES.COMPLETE],
+    [api.PIPELINE_STATES.VERIFICATION, api.PIPELINE_STATES.BLOCKED],
+    [api.PIPELINE_STATES.BLOCKED, api.PIPELINE_STATES.RESEARCH],
+    [api.PIPELINE_STATES.BLOCKED, api.PIPELINE_STATES.BUILDING],
+    [api.PIPELINE_STATES.BLOCKED, api.PIPELINE_STATES.VERIFICATION]
+  ];
+  validTransitions.forEach(([from, to]) => ok(api.transition(from, to) === to, "valid transition should pass: " + from + " -> " + to));
   expectThrow(() => api.transition(api.PIPELINE_STATES.RESEARCH, api.PIPELINE_STATES.COMPLETE), "research must not jump directly to COMPLETE");
+  expectThrow(() => api.transition(api.PIPELINE_STATES.COMPLETE, api.PIPELINE_STATES.RESEARCH), "COMPLETE must be terminal");
 
   const chain = api.buildProvenanceChain({
     mission: mission(),
@@ -240,6 +285,8 @@
       "delta approval validation",
       "Builder A/B workload routing",
       "explicit builder conflict enforcement",
+      "dependency readiness enforcement",
+      "conflicting-file enforcement",
       "scope/ownership conflict avoidance",
       "builder scope lock",
       "COMPLETE objective gates",

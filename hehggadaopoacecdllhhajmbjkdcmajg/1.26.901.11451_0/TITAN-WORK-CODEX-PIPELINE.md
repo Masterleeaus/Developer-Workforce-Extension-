@@ -204,3 +204,15 @@ Node invocation from the extension directory:
 8. Run Runtime Verification and acceptance through registered adapters.
 9. Preserve Agent 4 scope-lock/approval systems around any requested scope expansion.
 10. Merge this package as a stable isolated dependency; no modification of the legacy 5×5 supervisor is required by WP3 itself.
+
+
+## Post-merge hardening
+
+Builder assignment now explicitly fails closed when:
+- required mission dependencies are unresolved
+- a requested or candidate builder is blocked
+- repository compatibility fails
+- owned scope conflicts
+- explicit conflicting files overlap the packet scope or expected files
+
+The self-test also exercises the full allowed WP3 pipeline transition matrix and verifies terminal COMPLETE behavior.

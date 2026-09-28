@@ -279,26 +279,63 @@
     return aa.some(x => bb.some(y => x === y || x.startsWith(y.replace(/\/$/, "") + "/") || y.startsWith(x.replace(/\/$/, "") + "/")));
   }
 
+  function dependencyId(dep) {
+    if (typeof dep === "string") return dep;
+    return dep && (dep.id || dep.mission_id || dep.missionId || dep.name) || null;
+  }
+
+  function dependencyIsComplete(dep, completed) {
+    if (dep && typeof dep === "object") {
+      const status = String(dep.status || dep.state || "").toLowerCase();
+      if (["complete", "completed", "verified", "merged", "done"].includes(status)) return true;
+    }
+    const id = dependencyId(dep);
+    return Boolean(id && completed.includes(id));
+  }
+
+  function unresolvedDependencies(packet, state) {
+    const completed = uniq((state && (state.completed_dependencies || state.completedDependencies)) || []);
+    return arr(packet.dependencies).filter(dep => !dependencyIsComplete(dep, completed));
+  }
+
+  function builderCompatible(packet, slotState, globalState) {
+    const s = slotState || {};
+    if (s.blocked) return { ok: false, reason: "builder-blocked" };
+    if (s.repository && packet.repository && s.repository !== packet.repository) {
+      return { ok: false, reason: "repository-mismatch" };
+    }
+    if (pathsConflict(packet.scope_paths, arr(s.owned_paths))) {
+      return { ok: false, reason: "ownership-conflict" };
+    }
+    const explicitConflicts = uniq(s.conflicting_files || s.conflictingFiles);
+    if (pathsConflict(packet.expected_files, explicitConflicts) || pathsConflict(packet.scope_paths, explicitConflicts)) {
+      return { ok: false, reason: "file-conflict" };
+    }
+    const unresolved = unresolvedDependencies(packet, globalState || {});
+    if (unresolved.length) {
+      return { ok: false, reason: "dependencies-unresolved", unresolved_dependencies: clone(unresolved) };
+    }
+    return { ok: true };
+  }
+
   function chooseBuilder(packet, state) {
     state = state || {};
     const slots = BUILDER_SLOTS.map(id => {
-      const s = state[id] || {};
+      const raw = state[id] || {};
       return {
         id,
-        workload: Number(s.workload || 0),
-        repository: s.repository || "",
-        scope_paths: arr(s.scope_paths),
-        owned_paths: arr(s.owned_paths),
-        blocked: Boolean(s.blocked)
+        workload: Number(raw.workload || 0),
+        repository: raw.repository || "",
+        scope_paths: arr(raw.scope_paths),
+        owned_paths: arr(raw.owned_paths),
+        conflicting_files: arr(raw.conflicting_files || raw.conflictingFiles),
+        blocked: Boolean(raw.blocked),
+        raw
       };
-    }).filter(s => !s.blocked);
-    assert(slots.length > 0, "no Codex builder available");
-
-    const candidates = slots.filter(s => {
-      if (s.repository && packet.repository && s.repository !== packet.repository) return false;
-      return !pathsConflict(packet.scope_paths, s.owned_paths);
     });
-    assert(candidates.length > 0, "all builders conflict with packet scope/ownership");
+
+    const candidates = slots.filter(s => builderCompatible(packet, s.raw, state).ok);
+    assert(candidates.length > 0, "no compatible Codex builder: blocked, repository/scope/file conflict, or unresolved dependencies");
     candidates.sort((a, b) => a.workload - b.workload || a.id.localeCompare(b.id));
     return candidates[0].id;
   }
@@ -311,12 +348,8 @@
 
     if (requested) {
       assert(BUILDER_SLOTS.includes(requested), "invalid builder slot");
-      const s = (state || {})[requested] || {};
-      assert(!s.blocked, "requested builder is blocked");
-      if (s.repository && provisional.repository) {
-        assert(s.repository === provisional.repository, "requested builder repository mismatch");
-      }
-      assert(!pathsConflict(provisional.scope_paths, arr(s.owned_paths)), "requested builder conflicts with scope ownership");
+      const verdict = builderCompatible(provisional, (state || {})[requested] || {}, state || {});
+      assert(verdict.ok, "requested builder incompatible: " + verdict.reason);
       slot = requested;
     } else {
       slot = chooseBuilder(provisional, state);
@@ -535,6 +568,8 @@
     transition,
     buildProvenanceChain,
     collectVerificationEvidence,
+    unresolvedDependencies,
+    builderCompatible,
     pathsConflict
   });
 });
