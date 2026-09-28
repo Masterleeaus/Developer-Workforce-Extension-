@@ -287,7 +287,7 @@ export class TitanLiveChatRuntime{
   }
   const structured=this.extractCycleReview(result);
   if(structured){
-   const consumed=await this.consumeCycleReview(structured,{event,workerId:event.workerId,pendingId});
+   const consumed=await this.consumeCycleReview(result,{event,workerId:event.workerId,pendingId});
    return {reviewResult:result,consumed};
   }
   this.persistSnapshot();
