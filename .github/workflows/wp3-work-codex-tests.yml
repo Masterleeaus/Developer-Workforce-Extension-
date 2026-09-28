@@ -1,0 +1,26 @@
+name: WP3 Work Codex Pipeline Tests
+
+on:
+  push:
+    branches:
+      - agent-3-wp3-work-codex-pipeline
+  pull_request:
+    paths:
+      - "hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/titan-work-codex-pipeline.js"
+      - "hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/titan-work-codex-pipeline-selftest.js"
+      - "hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/TITAN-WORK-CODEX-PIPELINE.md"
+      - ".github/workflows/wp3-work-codex-tests.yml"
+
+jobs:
+  node-selftest:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: WP3 pipeline self-test
+        run: node titan-work-codex-pipeline-selftest.js
