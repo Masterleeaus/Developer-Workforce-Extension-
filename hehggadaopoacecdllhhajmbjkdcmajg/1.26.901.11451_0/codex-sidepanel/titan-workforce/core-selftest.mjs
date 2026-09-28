@@ -1,6 +1,6 @@
 import {CHAT_SLOTS,SUPERVISOR_SLOTS,BUILDER_SLOTS,ORCHESTRATOR_SLOTS,SLOT_IDS,SLOT_CLASS} from "./constants.js";
 import {createWorkforceState,validateWorkforceState,normalizeWorkforceState,validateWorkforceStateDetailed} from "./state.js";
-import {migrateLegacy5x5} from "./migrations.js";
+import {migrateLegacy5x5,migrateWorkforceState} from "./migrations.js";
 
 function assert(x,m){if(!x)throw new Error(m)}
 assert(SLOT_IDS.length===15,"expected 15 slots");
@@ -13,6 +13,33 @@ const m=migrateLegacy5x5({workerTabs:[11,12,13,14,15],missions:[{id:"m1"},null,n
 assert(m.agents.A1.conversation.legacyTabId===11,"legacy tab not migrated");
 assert(m.agents.A1.missionId==="m1","legacy mission not migrated");
 assert(m.legacy.auditLog.length===1,"legacy audit lost");
+
+const hardenedLegacy={
+ enabled:true,armed:true,workerTabs:[101,102,103,104,105],counts:[5,10,15,20,25],lastSeen:[1001,1002,1003,1004,1005],
+ missions:[{id:"legacy-active",title:"Active legacy",status:"working"},null,null,null,null],
+ workerHealth:[{status:"ready"},{status:"busy"},null,null,null],
+ reviewQueue:[{key:"rq-1",worker:0}],activeReview:{key:"active-review",worker:0},reviewHistory:[{key:"rh-1"}],reviewAttempts:{"rq-1":2},
+ ownershipLeases:[{resource:"src/a.js",worker:0},{resource:"src/b.js",worker:1}],
+ missionQueue:[{id:"queued-legacy",title:"Queued"}],missionHistory:[{id:"history-legacy",title:"History",status:"verified",assignedAgent:"W2"}],
+ dispatch:{minGapMs:1500,maxConcurrent:3,pending:[{worker:1,kind:"next"}]},checkpoints:[{missionId:"legacy-active",pass:5},null,null,null,null],
+ convergence:{round:3,history:[{round:2}]},auditLog:[{type:"legacy-audit"}],recovery:{unclean:true,reconciled:false},
+ workerIdentity:[{origin:"https://chatgpt.com",conversationId:"abc",key:"https://chatgpt.com/c/abc",tabId:101},null,null,null,null],
+ sendLedger:[{key:"legacy-send-1"}],approvals:[{id:"legacy-approval-1",type:"scope-expansion",approved:true}],
+ reviewScheduler:{cursor:2},utilization:{target:3,grants:9}
+};
+const hardened=migrateLegacy5x5(hardenedLegacy);
+assert(hardened.controls.armed===false&&hardened.recovery.migration.needsReconciliation===true,"migration must disarm and require reconciliation");
+assert(hardened.legacy.rawState.workerIdentity[0].conversationId==="abc","raw legacy snapshot lost");
+assert(hardened.agents.A1.conversation.key==="https://chatgpt.com/c/abc"&&hardened.agents.A1.checkpoint.pass===5,"identity/checkpoint mapping");
+assert(hardened.legacy.compatibility.ownershipLeases[0].agentId==="A1"&&hardened.legacy.compatibility.ownershipLeases[1].agentId==="A2","zero-based lease ownership mapping");
+assert(hardened.legacy.compatibility.review.active.key==="active-review"&&hardened.legacy.compatibility.review.attempts["rq-1"]===2,"review recovery evidence lost");
+assert(hardened.legacy.compatibility.dispatch.maxConcurrent===3&&hardened.legacy.compatibility.convergence.round===3,"dispatch/convergence evidence lost");
+assert(hardened.legacy.compatibility.recovery.unclean===true&&hardened.legacy.compatibility.utilization.target===3,"recovery/utilization evidence lost");
+assert(hardened.legacy.compatibility.approvals[0].migrationId==="legacy-approval-1"&&hardened.legacy.compatibility.sendLedger[0].key==="legacy-send-1","approval/send evidence lost");
+assert(hardened.missions["queued-legacy"].assignedAgent===null&&hardened.missions["history-legacy"].assignedAgent===null,"stale legacy assignment retained");
+assert(validateWorkforceStateDetailed(hardened).ok,"lossless migration must produce valid v4 state");
+const reloaded=migrateWorkforceState(hardened);
+assert(reloaded.legacy.compatibility.ownershipLeases.length===2&&reloaded.legacy.rawState.sendLedger.length===1,"migration reload must be idempotent");
 
 import {normalizeMissionContract} from "./mission-contract.js";
 import {pathAllowed,verifyDiffScope,requireScopeExpansion,verifyApprovedExpansion} from "./scope-locks.js";
