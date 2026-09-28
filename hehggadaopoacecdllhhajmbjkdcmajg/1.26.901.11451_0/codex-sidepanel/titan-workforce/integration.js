@@ -28,7 +28,7 @@ export class TitanWorkforceIntegration{
   const slot=this.controller.registry.get(canonical);if(!slot)throw new Error("Unknown slot "+canonical);
   const cast=this.profileApi.selectProfilesForMission(mission,{executionClass:slot.executionClass});
   const compiled=this.profileApi.compileProfileContext(cast,{executionClass:slot.executionClass});
-  this.controller.assign(canonical,{missionId,profileIds:compiled.profileIds});
+  this.controller.assignMission(missionId,canonical,{profileIds:compiled.profileIds,expectedExecutionClass:slot.executionClass,source:"profile-cast"});
   this.audit("mission-cast",{missionId,slotId:canonical,inputSlotId:slotId,profiles:compiled.profileIds});
   return {mission:clone(mission),slot:clone(this.controller.registry.get(canonical)),cast,compiled};
  }

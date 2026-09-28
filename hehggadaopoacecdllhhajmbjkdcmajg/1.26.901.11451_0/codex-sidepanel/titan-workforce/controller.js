@@ -5,9 +5,38 @@ function controlError(code,message,details={}){
  const e=new Error(message);e.code=code;Object.assign(e,details);return e;
 }
 function terminal(status){return ["complete","verified","cancelled","superseded"].includes(status)}
+function clone(x){return x==null?x:JSON.parse(JSON.stringify(x))}
+function restore(target,snapshot){for(const k of Object.keys(target))delete target[k];Object.assign(target,clone(snapshot))}
+function activeAssignmentMission(m){return !!m&&!terminal(m.status)}
+
+export function assignmentInvariantErrors(state){
+ const errors=[],agents=state?.agents||{},missions=state?.missions||{};
+ for(const [slotId,slot] of Object.entries(agents)){
+  if(!slot?.missionId)continue;
+  const mission=missions[slot.missionId];
+  if(!mission)errors.push(`slot ${slotId} references missing mission ${slot.missionId}`);
+  else if(mission.assignedAgent!==slotId)errors.push(`slot ${slotId} -> ${slot.missionId} but mission points to ${mission.assignedAgent||"none"}`);
+ }
+ for(const [missionId,mission] of Object.entries(missions)){
+  if(!mission?.assignedAgent)continue;
+  const slot=agents[mission.assignedAgent];
+  if(!slot)errors.push(`mission ${missionId} references missing agent ${mission.assignedAgent}`);
+  else if(slot.missionId!==missionId)errors.push(`mission ${missionId} -> ${mission.assignedAgent} but slot points to ${slot.missionId||"none"}`);
+ }
+ return errors;
+}
+export function validateAssignmentInvariants(state){const errors=assignmentInvariantErrors(state);return {ok:errors.length===0,errors}}
 
 export class TitanWorkforceController{
- constructor(state,{audit=()=>{},services={}}={}){this.state=state;this.registry=new TitanAgentRegistry(state);this.audit=audit;this.services=services}
+ constructor(state,{audit=()=>{},services={},missionControl=null}={}){
+  this.state=state;this.registry=new TitanAgentRegistry(state);this.audit=audit;this.services=services;this.missionControl=missionControl;
+  if(this.missionControl?.setAssignmentHandler)this.missionControl.setAssignmentHandler((missionId,slotId,options)=>this.assignMission(missionId,slotId,options));
+ }
+ setMissionControl(missionControl){
+  this.missionControl=missionControl;
+  if(missionControl?.setAssignmentHandler)missionControl.setAssignmentHandler((missionId,slotId,options)=>this.assignMission(missionId,slotId,options));
+  return this;
+ }
  arm(){
   if(this.state.controls.emergencyStop)throw controlError("EMERGENCY_STOP_ACTIVE","Cannot arm during emergency stop");
   const stopped=this.registry.list().filter(a=>ensureAgentControlState(a).emergencyStopped);
@@ -30,12 +59,84 @@ export class TitanWorkforceController{
   for(const a of this.registry.list()){const control=ensureAgentControlState(a);control.emergencyStopped=false;control.emergencyReason=null}
   this.audit("workforce-emergency-cleared",{reconciled:true});return true
  }
- assign(slotId,assignment){
+ dependencyBlockers(mission){
+  return (mission?.dependencies||[]).filter(id=>{
+   const dep=this.missionControl?.get(id);return !dep||!["complete","verified"].includes(dep.status);
+  });
+ }
+ assignMission(missionId,slotId,{profileIds=[],expectedExecutionClass=null,transfer=false,source="controller"}={}){
+  if(!this.missionControl)throw controlError("MISSION_CONTROL_REQUIRED","Mission Control is required for mission assignment");
+  const mission=this.missionControl.get(missionId);if(!mission)throw controlError("UNKNOWN_MISSION","Unknown mission "+missionId,{missionId});
+  const slot=this.registry.get(slotId);if(!slot)throw controlError("UNKNOWN_AGENT_SLOT","Unknown agent slot "+slotId,{slotId});
+  const control=ensureAgentControlState(slot);
+  if(this.state.controls.emergencyStop||control.emergencyStopped||control.quarantined||control.paused){
+   throw controlError("AGENT_NOT_AVAILABLE","Agent slot is not available for assignment",{slotId,control:{...control},emergencyStop:this.state.controls.emergencyStop});
+  }
+  if(expectedExecutionClass&&slot.executionClass!==expectedExecutionClass){
+   throw controlError("EXECUTION_CLASS_MISMATCH","Agent execution class does not match assignment",{slotId,actual:slot.executionClass,expected:expectedExecutionClass});
+  }
+  const blockers=this.dependencyBlockers(mission);
+  if(blockers.length)throw controlError("MISSION_DEPENDENCY_BLOCKED","Mission dependencies are not complete",{missionId,blockers});
+
+  const oldSlotId=mission.assignedAgent||null;
+  const oldMissionId=slot.missionId||null;
+  if(oldSlotId&&oldSlotId!==slotId&&!transfer)throw controlError("MISSION_ALREADY_ASSIGNED","Mission is already assigned",{missionId,assignedAgent:oldSlotId});
+  if(oldMissionId&&oldMissionId!==missionId){
+   const oldMission=this.missionControl.get(oldMissionId);
+   if(activeAssignmentMission(oldMission)&&!transfer)throw controlError("AGENT_ALREADY_ASSIGNED","Agent slot already has an active mission",{slotId,missionId:oldMissionId});
+  }
+
+  const affectedSlots=new Map(),affectedMissions=new Map();
+  const rememberSlot=id=>{const x=id&&this.registry.get(id);if(x&&!affectedSlots.has(id))affectedSlots.set(id,clone(x));return x};
+  const rememberMission=id=>{const x=id&&this.missionControl.get(id);if(x&&!affectedMissions.has(id))affectedMissions.set(id,clone(x));return x};
+  const previousSlot=rememberSlot(oldSlotId),previousMission=rememberMission(oldMissionId);
+  rememberSlot(slotId);rememberMission(missionId);
+  const at=Date.now(),eventId=`assignment:${missionId}:${at}:${slotId}`;
+  try{
+   if(previousSlot&&previousSlot.id!==slotId&&previousSlot.missionId===missionId){
+    previousSlot.missionId=null;previousSlot.profileIds=[];previousSlot.status="idle";previousSlot.updatedAt=at;
+   }
+   if(previousMission&&previousMission.id!==missionId&&previousMission.assignedAgent===slotId){
+    previousMission.assignedAgent=null;
+    if(!terminal(previousMission.status)){previousMission.status="queued";previousMission.statusReason="assignment transferred from "+slotId}
+    previousMission.updatedAt=at;
+    previousMission.assignmentHistory=[...(previousMission.assignmentHistory||[]),{id:eventId,type:"released-for-transfer",slotId,at,source}].slice(-100);
+   }
+
+   slot.missionId=missionId;slot.profileIds=[...profileIds];slot.status="assigned";slot.updatedAt=at;
+   mission.assignedAgent=slotId;mission.status="assigned";mission.statusReason=null;mission.updatedAt=at;
+   mission.assignmentHistory=[...(mission.assignmentHistory||[]),{id:eventId,type:oldSlotId&&oldSlotId!==slotId?"transferred":"assigned",from:oldSlotId,to:slotId,at,source}].slice(-100);
+   this.state.updatedAt=at;
+
+   const inv=validateAssignmentInvariants(this.state);
+   if(!inv.ok)throw controlError("ASSIGNMENT_INVARIANT_VIOLATION","Assignment invariants failed",{errors:inv.errors});
+   this.audit("mission-assigned",{eventId,missionId,slotId,from:oldSlotId,profileIds:[...profileIds],transfer,source});
+   return {mission,slot}
+  }catch(error){
+   for(const [id,snapshot] of affectedSlots){const target=this.registry.get(id);if(target)restore(target,snapshot)}
+   for(const [id,snapshot] of affectedMissions){const target=this.missionControl.get(id);if(target)restore(target,snapshot)}
+   throw error;
+  }
+ }
+ releaseSlot(slotId,reason="released"){
+  if(!this.missionControl)throw controlError("MISSION_CONTROL_REQUIRED","Mission Control is required for assignment release");
+  const slot=this.registry.get(slotId);if(!slot)throw controlError("UNKNOWN_AGENT_SLOT","Unknown agent slot "+slotId,{slotId});
+  const missionId=slot.missionId;if(!missionId)return slot;
+  const mission=this.missionControl.get(missionId),at=Date.now();
+  slot.missionId=null;slot.profileIds=[];slot.status="idle";slot.updatedAt=at;
+  if(mission?.assignedAgent===slotId){mission.assignedAgent=null;if(!terminal(mission.status)){mission.status="queued";mission.statusReason=reason}mission.updatedAt=at}
+  this.state.updatedAt=at;this.audit("mission-released",{missionId,slotId,reason});return slot
+ }
+ assign(slotId,assignment={}){
+  if(Object.prototype.hasOwnProperty.call(assignment,"missionId")){
+   if(assignment.missionId)return this.assignMission(assignment.missionId,slotId,assignment);
+   return this.releaseSlot(slotId,assignment.reason||"released");
+  }
   const slot=this.registry.get(slotId);if(!slot)throw new Error("Unknown agent slot "+slotId);
   const control=ensureAgentControlState(slot);
   if(this.state.controls.emergencyStop||control.emergencyStopped||control.quarantined||control.paused){
    throw controlError("AGENT_NOT_AVAILABLE","Agent slot is not available for assignment",{slotId,control:{...control},emergencyStop:this.state.controls.emergencyStop});
   }
-  const s=this.registry.assign(slotId,assignment);this.audit("agent-assigned",{slotId,missionId:s.missionId,profiles:s.profileIds});return s
+  return this.registry.assign(slotId,assignment)
  }
 }
