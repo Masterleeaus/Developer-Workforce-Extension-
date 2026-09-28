@@ -166,7 +166,7 @@ export function startTitanStockAdapterDiscovery({root=globalThis,intervalMs=5000
   if(host&&host!==current){current=host;try{installTitanStockAdapters(host)}catch(error){root.dispatchEvent?.(new CustomEvent("titan:stock-native-error",{detail:{message:String(error?.message||error)}}))}}
   return host;
  };
- const onReady=e=>{const host=e?.detail?.host||e?.detail;if(host&&host!==current){current=host;installTitanStockAdapters(host)}};
+ const onReady=e=>{const host=e?.detail?.host||e?.detail;if(host&&host!==current){current=host;try{installTitanStockAdapters(host)}catch(error){root.dispatchEvent?.(new CustomEvent("titan:stock-native-error",{detail:{message:String(error?.message||error),code:error?.code||null,operation:"host-ready"}}))}}};
  root.addEventListener?.("titan:stock-host-ready",onReady);
  attempt();
  if(typeof root.setInterval==="function")timer=root.setInterval(attempt,intervalMs);
