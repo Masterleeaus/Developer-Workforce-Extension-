@@ -119,6 +119,10 @@ export class TitanRuntimeOwner{
    case "unquarantineAgent": result=api.controls.unquarantine(payload.id,{approved:payload.approved===true,reason:payload.reason||"cockpit"});await api.save();break;
    case "pauseSquad": result=api.controls.pauseSquad(payload.squad,payload.reason||"cockpit");await api.save();break;
    case "resumeSquad": result=api.controls.resumeSquad(payload.squad);await api.save();break;
+   case "quarantineSquad": result=api.controls.quarantineSquad(payload.squad,payload.reason||"cockpit-squad");await api.save();break;
+   case "unquarantineSquad": result=api.controls.unquarantineSquad(payload.squad,{approved:payload.approved===true,reason:payload.reason||"cockpit-squad-approval"});await api.save();break;
+   case "quarantineAll": result=api.controls.quarantineAll(payload.reason||"cockpit-global");await api.save();break;
+   case "unquarantineAll": result=api.controls.unquarantineAll({approved:payload.approved===true,reason:payload.reason||"cockpit-global-approval"});await api.save();break;
    case "pauseAll":{
     result=[];
     for(const slot of api.controller.registry.list())try{result.push(api.controls.pauseAgent(slot.id,payload.reason||"cockpit-global"))}catch{}
