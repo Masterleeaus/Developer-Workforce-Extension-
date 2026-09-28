@@ -1,0 +1,26 @@
+name: WP2 Chat Scheduler Tests
+
+on:
+  push:
+    branches:
+      - agent-2/wp2-chat-five-pass-scheduler
+  pull_request:
+    paths:
+      - "hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/titan-workforce/**"
+      - ".github/workflows/wp2-chat-scheduler-tests.yml"
+
+jobs:
+  node-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/titan-workforce
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Core scheduler tests
+        run: node chat-five-pass-scheduler.test.js
+      - name: Integration scheduler tests
+        run: node chat-five-pass-integration.test.js
