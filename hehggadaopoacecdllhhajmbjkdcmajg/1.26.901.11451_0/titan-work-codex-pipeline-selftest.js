@@ -131,6 +131,40 @@
   });
   ok(delta.source_cycle_reviews.length === 1, "delta must preserve CycleReview provenance");
 
+  const narrowedPacket = api.createCodexImplementationPacket(delta, {
+    scope_paths: ["src/pipeline/nested"]
+  });
+  ok(narrowedPacket.scope_paths[0] === "src/pipeline/nested", "packet may narrow to descendant of approved directory scope");
+
+  const globDelta = api.compileApprovedImplementationDelta({
+    mission: mission(),
+    cycle_reviews: [review],
+    required_changes: ["glob scoped change"],
+    scope_paths: ["src/**"]
+  });
+  const globPacket = api.createCodexImplementationPacket(globDelta, {
+    scope_paths: ["src/feature"]
+  });
+  const globResult = api.createBuilderResult({
+    packet: Object.assign({}, globPacket, { builder_slot: "builder-a", packet_id: "glob-packet" }),
+    files_changed: ["src/feature/deep/file.js"]
+  });
+  ok(globResult.files_changed[0] === "src/feature/deep/file.js", "glob scope must allow nested builder result");
+
+  const windowsDelta = api.compileApprovedImplementationDelta({
+    mission: mission(),
+    cycle_reviews: [review],
+    required_changes: ["windows path normalization"],
+    scope_paths: ["src\\windows"]
+  });
+  ok(windowsDelta.scope_paths[0] === "src/windows", "scope paths must normalize Windows separators");
+
+  expectThrow(() => api.createBuilderResult({
+    packet: Object.assign({}, packet, { builder_slot: "builder-a" }),
+    files_changed: ["src/pipeline/../outside.js"]
+  }), "builder traversal path must fail closed");
+
+
   expectThrow(() => api.compileApprovedImplementationDelta({
     mission: mission(),
     cycle_reviews: [continue5],
@@ -289,6 +323,8 @@
       "conflicting-file enforcement",
       "scope/ownership conflict avoidance",
       "builder scope lock",
+      "canonical subtree/glob scope semantics",
+      "scope path normalization and traversal rejection",
       "COMPLETE objective gates",
       "REPAIR/RESEARCH/VERIFY/BLOCKED routes",
       "state-transition guards",

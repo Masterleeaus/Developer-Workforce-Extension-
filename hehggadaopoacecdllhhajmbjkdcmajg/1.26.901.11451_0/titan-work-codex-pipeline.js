@@ -155,6 +155,59 @@
     }
   }
 
+  function normalizeScopePath(value, allowGlob) {
+    let p = String(value || "").trim().replace(/\\/g, "/");
+    assert(p, "scope path must be non-empty");
+    assert(!/^[A-Za-z]:\//.test(p) && !p.startsWith("/") && !p.startsWith("//"), "absolute scope paths are not allowed");
+    p = p.replace(/^\.\//, "").replace(/\/+/g, "/");
+    const out = [];
+    for (const part of p.split("/")) {
+      if (!part || part === ".") continue;
+      assert(part !== "..", "scope path traversal is not allowed");
+      if (allowGlob === false) assert(!part.includes("*"), "changed file path may not contain glob");
+      assert(!(part.includes("**") && part !== "**"), "double-star glob must occupy a whole segment");
+      out.push(part);
+    }
+    assert(out.length > 0, "scope path resolves to empty");
+    return out.join("/");
+  }
+
+  function scopeRegex(scope) {
+    const p = normalizeScopePath(scope, true);
+    if (!p.includes("*")) {
+      const escaped = p.replace(/[.+^$(){}|[\]\\]/g, "\\  function compileApprovedImplementationDelta(input, options) {");
+      return new RegExp("^" + escaped + "(?:/.*)?$");
+    }
+    const parts = p.split("/");
+    let out = "^";
+    parts.forEach((part, index) => {
+      if (part === "**") {
+        out += index === parts.length - 1 ? "(?:.*)?" : "(?:[^/]+/)*";
+      } else {
+        let seg = "";
+        for (const ch of part) seg += ch === "*" ? "[^/]*" : ch.replace(/[.+^$(){}|[\]\\]/g, "\\  function compileApprovedImplementationDelta(input, options) {");
+        out += seg;
+        if (index < parts.length - 1) out += "/";
+      }
+    });
+    return new RegExp(out + "$");
+  }
+
+  function scopeAllowsPath(scope, path) {
+    try {
+      return scopeRegex(scope).test(normalizeScopePath(path, false));
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function scopeWithin(child, parent) {
+    const c = normalizeScopePath(child, true), p = normalizeScopePath(parent, true);
+    if (c === p) return true;
+    if (c.includes("*")) return false;
+    return scopeAllowsPath(p, c);
+  }
+
   function compileApprovedImplementationDelta(input, options) {
     input = input || {};
     const reviews = arr(input.cycle_reviews || input.cycleReviews);
@@ -165,7 +218,7 @@
     const mission = normalizeMission(input.mission || reviews[0].mission);
     assert(reviews.every(r => r.mission && (r.mission.id || r.mission.mission_id) === mission.id), "CycleReview mission mismatch");
 
-    const scopePaths = uniq(input.scope_paths || input.scopePaths);
+    const scopePaths = uniq(input.scope_paths || input.scopePaths).map(path => normalizeScopePath(path, true));
     assert(scopePaths.length > 0, "scope_paths must be non-empty");
     const tests = arr(input.tests);
     const acceptance = arr(input.acceptance_criteria || input.acceptanceCriteria || mission.acceptance_criteria);
@@ -256,7 +309,7 @@
       delta_id: delta.delta_id,
       repository: String(input.repository || delta.mission.repository || ""),
       builder_slot: input.builder_slot || input.builderSlot || null,
-      scope_paths: uniq(input.scope_paths || input.scopePaths || delta.scope_paths),
+      scope_paths: uniq(input.scope_paths || input.scopePaths || delta.scope_paths).map(path => normalizeScopePath(path, true)),
       expected_files: uniq(input.expected_files || input.expectedFiles || delta.expected_files),
       expected_symbols: uniq(input.expected_symbols || input.expectedSymbols || delta.expected_symbols),
       required_changes: arr(input.required_changes || input.requiredChanges || delta.required_changes),
@@ -270,7 +323,8 @@
       provenance: [provenanceRef("approved-delta", delta)].filter(Boolean),
       created_at: nowIso(options && options.clock)
     };
-    assert(packet.scope_paths.every(path => delta.scope_paths.includes(path)), "Codex packet scope may not expand beyond ApprovedImplementationDelta");
+    const deltaScopes = delta.scope_paths.map(path => normalizeScopePath(path, true));
+    assert(packet.scope_paths.every(path => deltaScopes.some(parent => scopeWithin(path, parent))), "Codex packet scope may not expand beyond ApprovedImplementationDelta");
     return packet;
   }
 
@@ -371,7 +425,7 @@
       result_id: requiredString(input.result_id || input.resultId || "builder-result:" + (packet ? packet.packet_id : Date.now()), "result_id"),
       packet_id: requiredString(input.packet_id || input.packetId || (packet && packet.packet_id), "packet_id"),
       builder_slot: requiredString(input.builder_slot || input.builderSlot || (packet && packet.builder_slot), "builder_slot"),
-      files_changed: uniq(input.files_changed || input.filesChanged),
+      files_changed: uniq(input.files_changed || input.filesChanged).map(path => normalizeScopePath(path, false)),
       diff: String(input.diff || ""),
       tests: arr(input.tests),
       commit: clone(input.commit || null),
@@ -385,7 +439,7 @@
     };
     assert(BUILDER_SLOTS.includes(result.builder_slot), "invalid builder slot");
     if (packet) {
-      assert(result.files_changed.every(path => packet.scope_paths.some(scope => path === scope || path.startsWith(scope.replace(/\/$/, "") + "/"))), "builder changed file outside packet scope");
+      assert(result.files_changed.every(path => packet.scope_paths.some(scope => scopeAllowsPath(scope, path))), "builder changed file outside packet scope");
       result.provenance.push(provenanceRef("codex-packet", packet));
     }
     audit("codex.builder.result", result);
@@ -570,6 +624,7 @@
     collectVerificationEvidence,
     unresolvedDependencies,
     builderCompatible,
+    scopeAllowsPath,
     pathsConflict
   });
 });

@@ -149,7 +149,7 @@ assert(remigrated.legacy.rawState.sendLedger.length===1,"idempotent migration mu
 
 
 import {normalizeMissionContract} from "./mission-contract.js";
-import {verifyDiffScope} from "./scope-locks.js";
+import {pathAllowed,verifyDiffScope,requireScopeExpansion,verifyApprovedExpansion} from "./scope-locks.js";
 import {TitanProvenanceGraph,createProvenanceNode} from "./provenance.js";
 import {TitanMissionControl} from "./mission-control.js";
 const mc=new TitanMissionControl(s);
@@ -157,6 +157,28 @@ const mission=mc.upsert({id:"scope1",title:"Scoped mission",scope_paths:["src/ti
 assert(mission.scopePaths[0]==="src/titan-go/**","scope normalization");
 assert(verifyDiffScope(["src/titan-go/a.js","tests/x.test.js"],mission.scopePaths).ok,"valid scope rejected");
 const bad=verifyDiffScope(["src/titan-go/a.js","src/auth/x.js"],mission.scopePaths);assert(!bad.ok&&bad.violations[0]==="src/auth/x.js","scope violation missed");
+
+assert(pathAllowed("src/pipeline/index.js",["src/pipeline"]),"plain directory scope must allow descendants");
+assert(pathAllowed("src\\pipeline\\deep\\file.js",["src\\pipeline"]),"scope matching must normalize Windows separators");
+assert(pathAllowed("tests/unit.test.js",["tests/*.test.js"]),"single-star glob should match one path segment");
+assert(!pathAllowed("tests/nested/unit.test.js",["tests/*.test.js"]),"single-star glob must not cross directory boundaries");
+assert(pathAllowed("src/deep/nested/file.js",["src/**"]),"double-star glob should match nested descendants");
+assert(!pathAllowed("src-other/file.js",["src"]),"plain directory scope must not allow sibling prefix escapes");
+const traversalScope=verifyDiffScope(["src/pipeline/../auth/x.js"],["src/pipeline"]);
+assert(!traversalScope.ok&&traversalScope.invalid.some(x=>x.kind==="changed-path"),"path traversal must fail closed");
+const absoluteScope=verifyDiffScope(["/etc/passwd"],["src"]);
+assert(!absoluteScope.ok&&absoluteScope.invalid.some(x=>x.kind==="changed-path"),"absolute changed path must fail closed");
+
+const scopePacketFixture={packet_id:"scope-packet",mission:{id:"scope1"},scope_paths:["src/titan-go"]};
+const expansionRequest=requireScopeExpansion(scopePacketFixture,["src/auth/x.js"],{now:100});
+assert(expansionRequest?.proposedScope[0]==="src/auth/x.js","scope expansion should propose exact violating changed path");
+let missingApprovalBlocked=false;try{verifyApprovedExpansion(scopePacketFixture,["src/auth/x.js"],expansionRequest,null,{now:150})}catch(e){missingApprovalBlocked=e.code==="SCOPE_EXPANSION_NOT_APPROVED"}assert(missingApprovalBlocked,"missing scope approval must fail closed");
+let mismatchApprovalBlocked=false;try{verifyApprovedExpansion(scopePacketFixture,["src/auth/x.js"],expansionRequest,{approved:true,requestId:"wrong"},{now:150})}catch(e){mismatchApprovalBlocked=e.code==="SCOPE_EXPANSION_APPROVAL_MISMATCH"}assert(mismatchApprovalBlocked,"mismatched scope approval must fail closed");
+let expiredApprovalBlocked=false;try{verifyApprovedExpansion(scopePacketFixture,["src/auth/x.js"],expansionRequest,{approved:true,requestId:expansionRequest.id,missionId:"scope1",expiresAt:149},{now:150})}catch(e){expiredApprovalBlocked=e.code==="SCOPE_EXPANSION_APPROVAL_EXPIRED"}assert(expiredApprovalBlocked,"expired scope approval must fail closed");
+const approvedExpansion=verifyApprovedExpansion(scopePacketFixture,["src/auth/x.js"],expansionRequest,{id:"approval-1",approved:true,requestId:expansionRequest.id,missionId:"scope1",expiresAt:500,approvedAt:140},{now:150});
+assert(approvedExpansion.verification.ok,"approved expanded scope must be reverified");
+assert(approvedExpansion.target.scope_paths.includes("src/auth/x.js"),"approved packet must persist expanded scope");
+assert(approvedExpansion.target.scope_approvals[0].approval_id==="approval-1","approved packet must retain approval evidence");
 const pg=new TitanProvenanceGraph(s);pg.add(createProvenanceNode({id:"p1",type:"chat-cycle",missionId:"scope1"}));pg.add(createProvenanceNode({id:"p2",type:"approved-delta",missionId:"scope1",parentIds:["p1"]}));
 assert(pg.ancestry("p2").length===2,"provenance ancestry failed");
 pg.add(createProvenanceNode({id:"p3",type:"chat-cycle",missionId:"scope1",parentIds:["p1"],agentId:"A1"}));
@@ -188,12 +210,29 @@ import {createRequire} from "node:module";
 import {TitanWorkforceController,validateAssignmentInvariants} from "./controller.js";
 import {TitanWorkforceControls} from "./controls.js";
 import {TitanWorkforceIntegration} from "./integration.js";
-import {installLegacyNativeBridge} from "./native-bridge.js";
+import {installLegacyNativeBridge,createScopedCodexService} from "./native-bridge.js";
 import {conversationIdentity,bindConversation,createConversationService} from "./conversation-service.js";
 import {classifyCIFailure,recoveryRoute} from "./ci-failures.js";
 import {createVerificationState,recordGate,verificationDecision} from "./verification-plane.js";
 import {importLegacyVerification,evaluateBooleanEvidence} from "./verification-adapter.js";
 const services=new TitanExecutionServices();services.register("github",{capabilities:["truth"]});assert(services.available("github"),"service registry");
+
+const scopedAudit=[];
+const scopedPacket={packet_id:"scope-service-packet",mission:{id:"scope-service-mission"},scope_paths:["src/core"]};
+const scopedCodex=createScopedCodexService({
+ capabilities:["build"],
+ build:async()=>({files_changed:["src/feature/new.js"],ok:true})
+},{
+ audit:(type,data)=>scopedAudit.push({type,data}),
+ requestApproval:async request=>({id:"scope-service-approval",approved:true,requestId:request.id,missionId:request.missionId,expiresAt:Date.now()+60000})
+});
+const scopedBuildResult=await scopedCodex.build({builderId:"BUILDER_A",packet:scopedPacket});
+assert(scopedBuildResult.scopeVerification.ok,"scoped Codex service must reverify approved expansion");
+assert(scopedPacket.scope_paths.includes("src/feature/new.js"),"scoped Codex service must persist approved scope into bounded packet");
+assert(scopedPacket.scope_approvals?.[0]?.approval_id==="scope-service-approval","scoped Codex service must persist approval record into packet");
+assert(scopedBuildResult.approvedPacket.scope_paths.includes("src/feature/new.js"),"scoped Codex result must return approved packet");
+assert(scopedAudit.some(x=>x.type==="scope-expansion-approved"),"scope expansion approval must be audited");
+
 
 const requireForProfiles=createRequire(import.meta.url);
 const realProfileApi=requireForProfiles("../titan-agent-profiles.js");
