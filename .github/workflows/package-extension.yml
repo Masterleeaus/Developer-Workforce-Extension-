@@ -4,8 +4,8 @@ on:
   push:
     paths:
       - ".github/workflows/package-extension.yml"
-      - "hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/manifest.json"
-      - "hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/tests/package-integrity.test.js"
+      - ".github/workflows/acceptance-certification.yml"
+      - "hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/**"
 permissions:
   contents: read
 jobs:
@@ -16,6 +16,28 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      - name: Run release acceptance certification
+        run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/tests/acceptance-certification.mjs
+      - name: Upload acceptance certificate
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: developer-workforce-release-certificate
+          path: artifacts/acceptance/
+          if-no-files-found: error
+      - name: Require release-eligible certificate
+        run: |
+          node - <<'NODE'
+          const fs=require("fs");
+          const p="artifacts/acceptance/certificate.json";
+          const c=JSON.parse(fs.readFileSync(p,"utf8"));
+          if(!c.releaseEligible){
+            console.error("Release blocked by acceptance certificate.");
+            console.error((c.notes||[]).join("\n"));
+            process.exit(1);
+          }
+          console.log("Acceptance certificate authorizes packaging.");
+          NODE
       - name: Validate package integrity
         run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/tests/package-integrity.test.js
       - name: Package extension
