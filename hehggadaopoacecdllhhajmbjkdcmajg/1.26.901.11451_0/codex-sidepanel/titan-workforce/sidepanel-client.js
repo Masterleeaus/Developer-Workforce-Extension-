@@ -51,6 +51,18 @@ function diagnostics(){
 function diagnosticAgent(id){
  return diagnostics()?.agents?.find?.(a=>a.id===id)||null;
 }
+function missionFor(id){return (snapshot?.missions||[]).find(m=>m.id===id)||null}
+function lifecycleFor(id){const rows=snapshot?.conversationLifecycle;return Array.isArray(rows)?rows.find(x=>x.agentId===id)||null:null}
+export function missionStage(status){
+ const s=String(status||"").toLowerCase();
+ if(/accept/.test(s))return "Acceptance";
+ if(/runtime/.test(s))return "Runtime";
+ if(/git|ci|merge|pr/.test(s))return "Git / CI";
+ if(/orchestr/.test(s))return "Orchestrator QA";
+ if(/codex|build|implementation|ready-for-codex/.test(s))return "Build";
+ if(/review|supervisor/.test(s))return "Review";
+ return "Research";
+}
 async function discoverConversations(){
  const response=await command("discoverConversations");
  conversationCandidates=Array.isArray(response.result)?response.result:[];
@@ -155,12 +167,10 @@ function controlButtons(a){
 }
 function bindingUi(a,d){
  if(!["chat_worker","work_supervisor"].includes(a.executionClass))return "";
- const bound=d?.conversation;
- const options=conversationCandidates.map(c=>`<option value="${c.tabId}" ${bound?.tabId===c.tabId?"selected":""}>${esc(c.title||c.key)} [${c.tabId}]</option>`).join("");
- return `<div class="binding">
-  <span>${bound?`Bound: ${esc(bound.title||bound.key)} [${bound.tabId||"?"}]`:"Unbound conversation"}</span>
-  ${conversationCandidates.length?`<select data-bind-select="${esc(a.id)}"><option value="">Choose conversation…</option>${options}</select><button data-action="bind-agent" data-agent="${esc(a.id)}">Bind</button>`:""}
- </div>`;
+ const bound=d?.conversation,life=lifecycleFor(a.id);
+ const options=conversationCandidates.map(x=>`<option value="${x.tabId}" ${bound?.tabId===x.tabId?"selected":""}>${esc(x.title||x.key)} [${x.tabId}]</option>`).join("");
+ const lifeText=life?`<small class="muted">age ${Math.round((life.metrics?.ageMs||0)/3600000)}h · cycles ${life.metrics?.cycles||0} · context ${Math.round((life.metrics?.contextCharacters||0)/1000)}k · failures ${life.metrics?.failures||0}${life.rotate?" · ROTATE: "+esc((life.reasons||[]).join(", ")):""}</small>`:"";
+ return `<div class="binding"><span>${bound?`Bound: ${esc(bound.title||bound.key)} [${bound.tabId||"?"}]`:"Unbound conversation"}</span>${bound?`<button data-action="rotate-conversation" data-agent="${esc(a.id)}">Rotate${life?.rotate?" ⚠":""}</button>`:""}${conversationCandidates.length?`<select data-bind-select="${esc(a.id)}"><option value="">Choose conversation…</option>${options}</select><button data-action="bind-agent" data-agent="${esc(a.id)}">Bind</button>`:""}${lifeText}</div>`;
 }
 function stateDetails(a,d){
  if(a.executionClass==="chat_worker"){
@@ -182,17 +192,9 @@ function stateDetails(a,d){
  return `Phase ${esc(x.phase||"idle")} · decision ${esc(decision||"—")}`;
 }
 function agentCard(a){
- const d=diagnosticAgent(a.id)||{};
- const profiles=(d.profileIds||a.profileIds||[]).join(", ")||"none";
- return `<article class="agent-card" data-class="${esc(a.executionClass)}">
-  <div class="agent-head"><b>${esc(a.id)}</b><span class="pill">${esc(d.state||a.status||"idle")}</span></div>
-  <div class="muted">${esc(a.executionClass)}${a.squad?` · Squad ${esc(a.squad)}`:""} · health ${esc(d.health||a.health||"unknown")}</div>
-  <div>Mission: ${esc(d.missionTitle||a.missionId||"—")}${d.missionStatus?` · ${esc(d.missionStatus)}`:""}</div>
-  <div>Profiles: ${esc(profiles)}</div>
-  <div class="runtime-line">${stateDetails(a,d)}</div>
-  ${bindingUi(a,d)}
-  <div>${controlButtons(a)}</div>
- </article>`;
+ const d=diagnosticAgent(a.id)||{},mission=missionFor(a.missionId||d.missionId);
+ const profiles=(d.profileIds||a.profileIds||[]).join(", ")||"none",reason=mission?.statusReason||mission?.blocker||null;
+ return `<article class="agent-card" data-class="${esc(a.executionClass)}"><div class="agent-head"><b>${esc(a.id)}</b><span class="pill">${esc(d.state||a.status||"idle")}</span></div><div class="muted">${esc(a.executionClass)}${a.squad?` · Squad ${esc(a.squad)}`:""} · health ${esc(d.health||a.health||"unknown")}</div><div>Mission: ${esc(d.missionTitle||a.missionId||"—")}${d.missionStatus?` · ${esc(d.missionStatus)}`:""}</div>${mission?`<div><b>Stage:</b> ${esc(missionStage(mission.status))}${reason?` · <span class="blocked-reason">${esc(reason)}</span>`:""}</div>`:""}<div>Profiles: ${esc(profiles)}</div><div class="runtime-line">${stateDetails(a,d)}</div>${bindingUi(a,d)}<div>${controlButtons(a)}</div></article>`;
 }
 function group(title,list){
  return `<details open><summary><b>${esc(title)}</b> · ${list.length}</summary><div class="agent-grid">${list.map(agentCard).join("")}</div></details>`;
@@ -208,6 +210,12 @@ function renderStatusBlock(){
   ${usage?`<div><b>Usage</b><br>${esc(usage.state||"normal")} · Chat ${usage.policy?.chatConcurrency??"?"}/10 · Codex ${usage.policy?.codexConcurrency??"?"}/2 · Context ${Math.round((usage.policy?.contextScale??1)*100)}%</div>`:""}
  </section>`;
 }
+function renderMissionOperations(){
+ const missions=[...(snapshot?.missions||[])].sort((a,b)=>String(a.priority||"P9").localeCompare(String(b.priority||"P9"))||String(a.id).localeCompare(String(b.id)));
+ const raw=snapshot?.state?.approvals||[],approvals=Array.isArray(raw)?raw:Object.values(raw),pending=approvals.filter(x=>x&&["pending","requested"].includes(String(x.status||"pending").toLowerCase()));
+ const rows=missions.map(m=>{const scope=[...(m.scopePaths||m.scope_paths||[])],verification=m.verification||snapshot?.state?.verification?.[m.id]||null,gates=verification?.gates?Object.entries(verification.gates).map(([k,v])=>k+":"+String(v?.status||"pending")).join(" · "):"—",reason=m.statusReason||m.blocker||"";return `<div class="mission-row"><b>${esc(m.id)}</b> · ${esc(m.title||"")}<br><span class="muted">${esc(missionStage(m.status))} · ${esc(m.status||"unknown")} · agent ${esc(m.assignedAgent||"—")}${reason?" · "+esc(reason):""}</span><br><span class="muted">Scope: ${esc(scope.join(", ")||"—")} · Git/CI/runtime/acceptance: ${esc(gates)}</span></div>`}).join("");
+ return `<details open><summary><b>Mission queue, approvals, scope & evidence</b> · ${missions.length} missions · ${pending.length} approvals</summary><div class="mission-list">${rows||"<span class=\"muted\">No missions</span>"}</div></details>`;
+}
 function renderPreflight(){
  if(!lastPreflight)return "";
  const failed=lastPreflight.checks?.filter(x=>!x.ok)||[];
@@ -219,47 +227,23 @@ function renderError(){
 }
 function render(){
  const el=ensurePanel();
- if(!snapshot){
-  el.innerHTML=`<style>${styles()}</style><b>Developer Workforce</b><div>Background runtime unavailable</div>${renderError()}<button id="tdw-refresh">Retry</button>`;
-  el.querySelector("#tdw-refresh").onclick=()=>refresh();
-  return;
- }
+ if(!snapshot){el.innerHTML=`<style>${styles()}</style><b>Developer Workforce</b><div>Background runtime unavailable</div>${renderError()}<button id="tdw-refresh">Retry</button>`;el.querySelector("#tdw-refresh").onclick=()=>refresh();return}
  const s=summary(),list=agents();
- el.innerHTML=`<style>${styles()}</style>
-  <header><div><b>Developer Workforce · ${s.total} agents</b><div class="muted">${esc(s.owner)} · ${s.armed?"ARMED":"DISARMED"}${s.emergencyStop?" · E-STOP":""} · active ${s.active}/${s.total}</div></div></header>
-  ${renderError()}${renderPreflight()}
-  <nav class="toolbar">
-   <button data-action="${s.armed?"disarm":"arm"}">${s.armed?"Disarm":"Arm"}</button>
-   <button data-action="estop" class="danger">E-STOP</button>
-   <button data-action="pause-all">Pause all</button><button data-action="resume-all">Resume all</button>
-   <button data-action="discover">Discover conversations</button>
-   <button data-action="diagnostics">Diagnostics</button>
-   <button data-action="preflight">Preflight</button>
-   <button data-action="refresh">Refresh</button>
-  </nav>
-  <nav class="toolbar"><b>Squads:</b> A <button data-action="pause-squad" data-squad="A">Pause</button><button data-action="resume-squad" data-squad="A">Resume</button> B <button data-action="pause-squad" data-squad="B">Pause</button><button data-action="resume-squad" data-squad="B">Resume</button></nav>
-  <div class="topology">Chat ${s.byClass.chat_worker||0} · Work ${s.byClass.work_supervisor||0} · Builders ${s.byClass.codex_builder||0} · Orchestrator ${s.byClass.codex_orchestrator||0}</div>
-  ${renderStatusBlock()}
-  ${conversationCandidates.length?`<div class="result ok">Discovered ${conversationCandidates.length} ChatGPT conversations. Choose one on a Chat/Work agent card.</div>`:""}
-  ${group("Chat workers",list.filter(a=>a.executionClass==="chat_worker"))}
-  ${group("Work supervisors",list.filter(a=>a.executionClass==="work_supervisor"))}
-  ${group("Codex builders",list.filter(a=>a.executionClass==="codex_builder"))}
-  ${group("Codex orchestrator",list.filter(a=>a.executionClass==="codex_orchestrator"))}
- `;
+ el.innerHTML=`<style>${styles()}</style><header><div><b>Developer Workforce · ${s.total} agents</b><div class="muted">${esc(s.owner)} · ${s.armed?"ARMED":"DISARMED"}${s.emergencyStop?" · E-STOP":""} · active ${s.active}/${s.total}</div></div></header>${renderError()}${renderPreflight()}<nav class="toolbar"><button data-action="${s.armed?"disarm":"arm"}">${s.armed?"Disarm":"Arm"}</button><button data-action="estop" class="danger">E-STOP</button><button data-action="pause-all">Pause all</button><button data-action="resume-all">Resume all</button><button data-action="quarantine-all">Quarantine all</button><button data-action="unquarantine-all">Unquarantine all</button><button data-action="discover">Discover conversations</button><button data-action="diagnostics">Diagnostics</button><button data-action="preflight">Preflight</button><button data-action="refresh">Refresh</button></nav><nav class="toolbar"><b>Squads:</b> A <button data-action="pause-squad" data-squad="A">Pause</button><button data-action="resume-squad" data-squad="A">Resume</button><button data-action="quarantine-squad" data-squad="A">Quarantine</button><button data-action="unquarantine-squad" data-squad="A">Unquarantine</button> B <button data-action="pause-squad" data-squad="B">Pause</button><button data-action="resume-squad" data-squad="B">Resume</button><button data-action="quarantine-squad" data-squad="B">Quarantine</button><button data-action="unquarantine-squad" data-squad="B">Unquarantine</button></nav><div class="topology">Chat workers ${s.byClass.chat_worker||0} · Work supervisors ${s.byClass.work_supervisor||0} · Codex builders ${s.byClass.codex_builder||0} · Codex orchestrator ${s.byClass.codex_orchestrator||0}</div>${renderStatusBlock()}${conversationCandidates.length?`<div class="result ok">Discovered ${conversationCandidates.length} ChatGPT conversations.</div>`:""}${renderMissionOperations()}${group("Squad A · A1–A5 + Supervisor A",list.filter(a=>a.squad==="A"))}${group("Squad B · B1–B5 + Supervisor B",list.filter(a=>a.squad==="B"))}${group("Codex builders",list.filter(a=>a.executionClass==="codex_builder"))}${group("Codex orchestrator",list.filter(a=>a.executionClass==="codex_orchestrator"))}`;
  wire(el,s);
 }
 function styles(){return `
- #titan-dev-workforce{position:fixed;right:8px;top:8px;z-index:2147483646;width:min(560px,calc(100vw - 16px));max-height:94vh;overflow:auto;background:Canvas;color:CanvasText;border:1px solid #8885;border-radius:12px;padding:10px;font:12px system-ui;box-shadow:0 8px 30px #0003}
+ #titan-dev-workforce{position:fixed;right:8px;top:8px;z-index:2147483646;width:min(780px,calc(100vw - 16px));max-height:94vh;overflow:auto;background:Canvas;color:CanvasText;border:1px solid #8885;border-radius:12px;padding:10px;font:12px system-ui;box-shadow:0 8px 30px #0003}
  #titan-dev-workforce *{box-sizing:border-box}#titan-dev-workforce header{display:flex;justify-content:space-between;gap:8px;margin-bottom:6px}
  #titan-dev-workforce button,#titan-dev-workforce select{font:inherit;margin:2px;padding:3px 6px}
  #titan-dev-workforce .toolbar{display:flex;align-items:center;gap:2px;flex-wrap:wrap;border-top:1px solid #8883;padding:5px 0}
  #titan-dev-workforce .danger{font-weight:700}.muted{opacity:.72}.topology{padding:5px 0}
  #titan-dev-workforce details{border-top:1px solid #8883;padding:5px 0}#titan-dev-workforce summary{cursor:pointer}
- #titan-dev-workforce .agent-grid{display:grid;grid-template-columns:1fr;gap:5px;margin-top:5px}
+ #titan-dev-workforce .agent-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:5px;margin-top:5px}
  #titan-dev-workforce .agent-card{border:1px solid #8884;border-radius:8px;padding:6px}
  #titan-dev-workforce .agent-head{display:flex;justify-content:space-between}.pill{border:1px solid #8885;border-radius:999px;padding:1px 5px}
  #titan-dev-workforce .runtime-line{margin:3px 0}.binding{display:flex;gap:3px;align-items:center;flex-wrap:wrap}.binding select{max-width:300px}
- #titan-dev-workforce .status-grid{display:grid;gap:4px;border-top:1px solid #8883;padding:5px 0}
+ #titan-dev-workforce .status-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:4px;border-top:1px solid #8883;padding:5px 0}#titan-dev-workforce .mission-list{display:grid;gap:4px;margin-top:4px}.mission-row{border:1px solid #8884;border-radius:8px;padding:6px}.blocked-reason{font-weight:600}
  #titan-dev-workforce .result{border-radius:6px;padding:5px;margin:4px 0}.result.ok{background:color-mix(in srgb,CanvasText 8%,Canvas)}.result.bad{border:1px solid #c44}
  `}
 function wire(el,s){
@@ -270,13 +254,18 @@ function wire(el,s){
   else if(action==="estop"){if(confirm("Emergency stop the Titan workforce?"))await command("emergencyStop",{reason:"cockpit"})}
   else if(action==="pause-all")await command("pauseAll",{reason:"cockpit"});
   else if(action==="resume-all")await command("resumeAll");
+  else if(action==="quarantine-all"){if(confirm("Quarantine all non-terminal agents?"))await command("quarantineAll",{reason:"cockpit-global"})}
+  else if(action==="unquarantine-all"){if(confirm("Unquarantine all agents? This is an explicit approval."))await command("unquarantineAll",{approved:true,reason:"cockpit-global-approval"})}
   else if(action==="pause-squad")await command("pauseSquad",{squad,reason:"cockpit"});
   else if(action==="resume-squad")await command("resumeSquad",{squad});
+  else if(action==="quarantine-squad"){if(confirm("Quarantine Squad "+squad+"?"))await command("quarantineSquad",{squad,reason:"cockpit-squad"})}
+  else if(action==="unquarantine-squad"){if(confirm("Unquarantine Squad "+squad+"? This is an explicit approval."))await command("unquarantineSquad",{squad,approved:true,reason:"cockpit-squad-approval"})}
   else if(action==="pause-agent")await command("pauseAgent",{id:agent,reason:"cockpit"});
   else if(action==="resume-agent")await command("resumeAgent",{id:agent});
-  else if(action==="quarantine-agent"){const reason=prompt("Quarantine reason", "manual cockpit quarantine");if(reason!==null)await command("quarantineAgent",{id:agent,reason})}
+  else if(action==="quarantine-agent"){const reason=prompt("Quarantine reason","manual cockpit quarantine");if(reason!==null)await command("quarantineAgent",{id:agent,reason})}
   else if(action==="unquarantine-agent"){if(confirm("Unquarantine "+agent+"? This is an explicit approval."))await command("unquarantineAgent",{id:agent,approved:true,reason:"cockpit approval"})}
   else if(action==="bind-agent"){const select=el.querySelector(`[data-bind-select="${CSS.escape(agent)}"]`);await bindAgent(agent,select?.value)}
+  else if(action==="rotate-conversation"){if(confirm("Rotate "+agent+" to a fresh conversation using a compact checkpoint?"))await command("rotateConversation",{id:agent,createIfMissing:true,active:false})}
   else if(action==="discover")await discoverConversations();
   else if(action==="diagnostics")await runDiagnostics();
   else if(action==="preflight")await runPreflight();

@@ -27,6 +27,7 @@ import {TitanContextCompiler} from "./context-compiler.js";
 import {TitanUsageGovernor} from "./usage-governor.js";
 import {TitanLifecycleManager} from "./maintenance.js";
 import {TitanWorkforceObservability} from "./observability.js";
+import {TitanConversationLifecycle} from "./conversation-lifecycle.js";
 
 export const WORKFORCE_STORAGE_KEY="titanDeveloperWorkforceV4";
 export const LEGACY_STORAGE_KEY="titan5x5.state.v2";
@@ -54,6 +55,7 @@ export async function createTitanWorkforceRuntime({
   :migrateWorkforceState(stored[LEGACY_STORAGE_KEY]||createWorkforceState());
 
  let observability=null;
+ let conversationLifecycle=null;
  const audit=(type,data={})=>{
   const at=Date.now();
   state.auditLog=Array.isArray(state.auditLog)?state.auditLog:[];
@@ -64,6 +66,13 @@ export async function createTitanWorkforceRuntime({
    state.observabilityErrors.push({at,type,message:String(error?.message||error)});
    state.observabilityErrors=state.observabilityErrors.slice(-100);
   }
+  try{
+   if(conversationLifecycle){
+    if(type==="chat-pass-completed"&&data.workerId)conversationLifecycle.note(data.workerId,{contextCharacters:Number(data.characters||0),cycleCompleted:data.cycleCompleted===true});
+    else if(type==="chat-runtime-error"&&data.workerId)conversationLifecycle.note(data.workerId,{failure:true});
+    else if(type==="supervisor-review-requested"&&data.supervisorId)conversationLifecycle.note(data.supervisorId,{cycleCompleted:true});
+   }
+  }catch{}
   emit(eventTarget,"titan-workforce:audit",{type,data,at,owner:"background"});
  };
  observability=new TitanWorkforceObservability(state);
@@ -104,6 +113,21 @@ export async function createTitanWorkforceRuntime({
  const contextCompiler=new TitanContextCompiler({profiles:integration.profileApi,contextProvider:(missionId,opts)=>integration.contextForMission(missionId,opts),provenance:integration.provenance,usageGovernor,audit});
  const save=async()=>{state.updatedAt=Date.now();await storage.set({[WORKFORCE_STORAGE_KEY]:state});return true};
  const liveChat=new TitanLiveChatRuntime({state,integration,missionControl:missions,services,usageGovernor,audit,save,pollMs,eventTarget});
+ const replaceAgentConversation=async(agentId,conversation,{checkpoint=null}={})=>{
+  const slot=controller.registry.get(agentId);if(!slot)throw new Error("Unknown agent "+agentId);
+  if(!["chat_worker","work_supervisor"].includes(slot.executionClass))throw new Error("Conversation replacement is only supported for Chat workers and Work supervisors");
+  if(slot.executionClass==="chat_worker")return liveChat.replaceConversation(agentId,conversation,{checkpointId:checkpoint?.id||null});
+  const work=services.require("work");
+  await work.assertConversation?.(conversation);
+  slot.conversation=clone(conversation);slot.health="ready";slot.updatedAt=Date.now();
+  audit("work-conversation-rotated",{agentId,missionId:slot.missionId||null,toKey:conversation.key,checkpointId:checkpoint?.id||null});
+  return clone(slot);
+ };
+ conversationLifecycle=new TitanConversationLifecycle({
+  state,registry:controller.registry,missionControl:missions,provenance:integration.provenance,
+  conversationService:conversations,bindReplacement:replaceAgentConversation,audit,save
+ });
+
  const bindAgentConversation=async(agentId,conversationOrTabId)=>{
   const slot=controller.registry.get(agentId);
   if(!slot)throw new Error("Unknown agent "+agentId);
@@ -148,7 +172,7 @@ export async function createTitanWorkforceRuntime({
 
  const api={
   state,controller,missions,services,capabilities,mcp,approvals,credentials,runtimeVerifiers,executionCapabilities,
-  integration,architecture,repositoryIntelligence,missionCompiler,contextCompiler,usageGovernor,liveChat,controls,mergeController,lifecycle,observability,
+  integration,architecture,repositoryIntelligence,missionCompiler,contextCompiler,usageGovernor,liveChat,controls,mergeController,lifecycle,observability,conversationLifecycle,
   bindAgentConversation,
   diagnostics:()=>buildCockpitDiagnostics(api),
   metrics:()=>observability.metrics({agents:controller.registry.list()}),

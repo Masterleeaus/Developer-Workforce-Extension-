@@ -22,6 +22,10 @@ jobs:
           node-version: "22"
       - name: Cockpit diagnostics and control contracts
         run: node cockpit-diagnostics.test.mjs
+      - name: Cockpit hierarchy and lifecycle controls
+        run: node cockpit-hierarchy.test.mjs
+      - name: Conversation lifecycle
+        run: node conversation-lifecycle.test.mjs
       - name: Background runtime regression
         run: node background-runtime.test.mjs
       - name: Control-state regression
