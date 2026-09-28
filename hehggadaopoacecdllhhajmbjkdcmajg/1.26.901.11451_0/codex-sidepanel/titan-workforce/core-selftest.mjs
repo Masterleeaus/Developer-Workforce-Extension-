@@ -345,6 +345,7 @@ routingServices.register("codex",{capabilities:["build"],build:async x=>{calls.p
 const routingController=new TitanWorkforceController(routingState,{services:routingServices});
 const routingMissions=new TitanMissionControl(routingState);
 const routingIntegration=new TitanWorkforceIntegration({state:routingState,controller:routingController,missionControl:routingMissions,services:routingServices});
+routingIntegration.profileApi=realProfileApi;
 await routingIntegration.requestWorkReviewForPipelineSlot("supervisor-a",{mission:{id:"mA"}});
 await routingIntegration.requestWorkReviewForPipelineSlot("supervisor-b",{mission:{id:"mB"}});
 await routingIntegration.dispatchCodexPacket("builder-a",{builder_slot:"builder-a",mission:{id:"mA"},packet_id:"pA"});
@@ -366,6 +367,7 @@ let orchestrateUnavailable=false;try{reviewOnlyServices.requireCapability("codex
 
 const reviewOnlyState=createWorkforceState();
 const reviewOnlyIntegration=new TitanWorkforceIntegration({state:reviewOnlyState,controller:new TitanWorkforceController(reviewOnlyState,{services:reviewOnlyServices}),missionControl:new TitanMissionControl(reviewOnlyState),services:reviewOnlyServices});
+reviewOnlyIntegration.profileApi=realProfileApi;
 let dispatchUnavailable=false;try{await reviewOnlyIntegration.dispatchCodexPacket("builder-a",{builder_slot:"builder-a",mission:{id:"cap-test"}})}catch(e){dispatchUnavailable=e.code==="CAPABILITY_UNAVAILABLE"}assert(dispatchUnavailable,"Builder dispatch must surface CAPABILITY_UNAVAILABLE");
 let qaUnavailable=false;try{await reviewOnlyIntegration.orchestrate({mission:{id:"cap-test"}})}catch(e){qaUnavailable=e.code==="CAPABILITY_UNAVAILABLE"}assert(qaUnavailable,"Orchestrator dispatch must surface CAPABILITY_UNAVAILABLE");
 
