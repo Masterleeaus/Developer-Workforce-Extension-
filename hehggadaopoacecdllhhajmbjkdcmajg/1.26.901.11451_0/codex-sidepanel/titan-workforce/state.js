@@ -16,7 +16,8 @@ export function ensureAgentControlState(slot){
   quarantined:slot.control.quarantined===true,
   quarantineReason:slot.control.quarantineReason||null,
   emergencyStopped:slot.control.emergencyStopped===true,
-  emergencyReason:slot.control.emergencyReason||null,\n  preEmergency:slot.control.preEmergency||null\n };
+  preEmergency:plain(slot.control.preEmergency)?clone(slot.control.preEmergency):null
+ };
  return slot.control;
 }
 
