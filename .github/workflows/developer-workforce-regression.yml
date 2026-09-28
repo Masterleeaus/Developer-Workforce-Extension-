@@ -37,6 +37,8 @@ jobs:
         run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/execution-capabilities.test.mjs
       - name: Scoped Codex capability enforcement
         run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/scoped-codex-capability.test.mjs
+      - name: Canonical scope semantics
+        run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/scope-semantics.test.mjs
       - name: Validate side-panel references
         run: |
           python - <<'PY'
