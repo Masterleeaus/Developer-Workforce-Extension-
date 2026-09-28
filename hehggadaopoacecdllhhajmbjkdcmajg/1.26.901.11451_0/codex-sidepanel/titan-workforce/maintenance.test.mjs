@@ -1,0 +1,15 @@
+import assert from "node:assert/strict";
+import {TitanLifecycleManager,deriveMergeMetrics} from "./maintenance.js";
+import {TitanMergeController,integrationPressure} from "./merge-controller.js";
+const now=1_000_000_000;
+const state={missions:{stale:{id:"stale",status:"working",createdAt:now-30*3600000,updatedAt:now-30*3600000},superseded:{id:"superseded",status:"superseded",supersededBy:"new",createdAt:now-30*3600000,updatedAt:now-30*3600000},done:{id:"done",status:"verified",createdAt:now-30*3600000,updatedAt:now-30*3600000}},agents:{A1:{id:"A1",status:"idle",conversation:{boundAt:now-8*24*3600000,missionsCompleted:1,failures:0}},A2:{id:"A2",status:"busy",conversation:{boundAt:now-8*24*3600000,missionsCompleted:20,failures:4}}},verification:{v1:{status:"pending"},v2:{status:"verified"}},workItems:[{id:"merged",merged:true,updatedAt:now-5*3600000},{id:"open-pr",prOpen:true,state:"open",ciStatus:"pending",mergeable:false,updatedAt:now-5*3600000}]};
+const audit=[],registry={list:()=>Object.values(state.agents),get:id=>state.agents[id]||null},missionControl={get:id=>state.missions[id]||null};let saves=0;
+const mergeController=new TitanMergeController({audit:(t,d)=>audit.push({t,d})});
+const manager=new TitanLifecycleManager({state,missionControl,registry,mergeController,audit:(t,d)=>audit.push({t,d}),save:async()=>{saves++;return true},now:()=>now});
+const metrics=deriveMergeMetrics({pullRequests:state.workItems,verificationStates:Object.values(state.verification),mainChurn:2});
+assert.equal(metrics.openPRs,1);assert.equal(metrics.ciPending,1);assert.equal(metrics.conflicts,1);assert.equal(metrics.verificationBacklog,1);assert.equal(metrics.mainChurn,2);assert.equal(integrationPressure(metrics).state,"throttled");
+const result=await manager.run();
+assert.equal(state.missions.stale.status,"attention");assert.equal(state.missions.superseded.archivedAt,now);assert.equal(state.agents.A1.conversation.rotationRequired,true);assert.equal(state.agents.A2.conversation.rotationRequired,undefined);assert.ok(result.actions.some(x=>x.type==="work-item"&&x.action==="REMOVE"&&x.requiresApproval));assert.ok(result.actions.some(x=>x.type==="work-item"&&x.action==="FINISH_OR_MERGE"&&x.requiresApproval));assert.equal(result.mergePressure.state,"throttled");assert.equal(saves,1);assert.throws(()=>manager.assertAutomaticMergeAllowed({id:"x"}),e=>e.code==="MERGE_BACKPRESSURE");
+const high=mergeController.evaluate({openPRs:3,ciPending:2,conflicts:2,verificationBacklog:2,mainChurn:2});assert.equal(high.state,"frozen");
+let approvalRequested=false;manager.requestApproval=async()=>{approvalRequested=true;return {approved:false,id:"a1"}};await assert.rejects(()=>manager.requestDestructiveAction({type:"work-item",action:"REMOVE",id:"merged",requiresApproval:true}),e=>e.code==="APPROVAL_REQUIRED");assert.equal(approvalRequested,true);
+console.log("Lifecycle maintenance and merge backpressure tests passed");
