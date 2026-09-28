@@ -20,9 +20,9 @@ function fixture({
   id:"mission-1",title:"Implement bounded change",goal:"Change one scoped file",
   repository:"Masterleeaus/example",branch:"issue-1/test",scopePaths:["src/**"],
   constraints:["preserve architecture"],acceptanceCriteria:[{id:"ac-1",text:"done",done:true}],
-  verificationRequirements:[],runtimeRequirements:[],dependencies:[],status:"assigned"
+  verificationRequirements:[],runtimeRequirements:[],dependencies:[],status:"assigned",assignedAgent:"SUPERVISOR_A"
  };
- state.missions[mission.id]=mission;
+ state.missions[mission.id]=mission;state.agents.SUPERVISOR_A.missionId=mission.id;state.agents.SUPERVISOR_A.status="reviewing";
  const transitions=[];
  const missionControl={
   get:id=>state.missions[id]||null,
