@@ -9,10 +9,43 @@ for(const id of SUPERVISOR_SLOTS)assert(SLOT_CLASS[id]==="work_supervisor",id+" 
 for(const id of BUILDER_SLOTS)assert(SLOT_CLASS[id]==="codex_builder",id+" class");
 for(const id of ORCHESTRATOR_SLOTS)assert(SLOT_CLASS[id]==="codex_orchestrator",id+" class");
 const s=createWorkforceState();assert(validateWorkforceState(s),"fresh state invalid");
-const m=migrateLegacy5x5({workerTabs:[11,12,13,14,15],missions:[{id:"m1"},null,null,null,null],auditLog:[{type:"legacy"}]});
-assert(m.agents.A1.conversation.legacyTabId===11,"legacy tab not migrated");
+const hardenedLegacy={
+ enabled:true,armed:true,emergencyStop:true,lastArmAt:900,
+ workerTabs:[101,102,103,104,105],
+ workerIdentity:[{origin:"https://chatgpt.com",conversationId:"abc",key:"https://chatgpt.com/c/abc",tabId:101},null,null,null,null],
+ missions:[{id:"m1",title:"Legacy active"},null,null,null,null],
+ counts:[5,0,0,0,0],lastSeen:[1001,0,0,0,0],
+ workerHealth:[{status:"ready"},null,null,null,null],
+ reviewQueue:[{key:"rq1"}],activeReview:{key:"active1"},reviewHistory:[{key:"rh1"}],reviewAttempts:{rq1:2},
+ ownershipLeases:[{resource:"src/a.js",worker:0}],approvals:[{id:"ap1",approved:true}],
+ missionQueue:[{id:"queued1",title:"Queued"}],missionHistory:[{id:"history1",title:"History",status:"verified"}],
+ dispatch:{maxConcurrent:3,pending:[{id:"p1"}]},checkpoints:[{missionId:"m1",pass:5},null,null,null,null],
+ convergence:{round:3},recovery:{unclean:true,reconciled:false},reviewScheduler:{cursor:2,lastGrantedAt:[5,0,0,0,0]},
+ utilization:{target:3,lastAdvanceAt:[1,0,0,0,0]},auditLog:[{type:"legacy"}],sendLedger:[{key:"send1"}]
+};
+const m=migrateLegacy5x5(hardenedLegacy);
+assert(m.agents.A1.conversation.key==="https://chatgpt.com/c/abc","legacy identity not migrated");
+assert(m.agents.A1.conversation.legacyTabId===101,"legacy tab not retained");
 assert(m.agents.A1.missionId==="m1","legacy mission not migrated");
-assert(m.legacy.auditLog.length===1,"legacy audit lost");
+assert(m.agents.A1.checkpoint.pass===5,"legacy checkpoint not mapped");
+assert(m.agents.A1.health==="ready","legacy health not mapped");
+assert(m.agents.A1.legacyRuntime.passCount===5&&m.agents.A1.legacyRuntime.lastSeen===1001,"legacy counters not mapped");
+assert(m.agents.A1.control.paused===true,"legacy active slot must be paused for reconciliation");
+assert(m.missions.queued1?.assignedAgent===null&&m.missions.history1?.assignedAgent===null,"legacy queue/history not imported safely");
+assert(m.legacy.compatibility.review.active.key==="active1","legacy active review lost");
+assert(m.legacy.compatibility.review.history.length===1&&m.legacy.compatibility.review.attempts.rq1===2,"legacy review history/attempts lost");
+assert(m.legacy.compatibility.ownershipLeases[0].agentId==="A1","legacy lease worker not canonicalized");
+assert(m.legacy.compatibility.approvals[0].migrationId==="ap1","legacy approval lost");
+assert(m.legacy.compatibility.dispatch.maxConcurrent===3,"legacy dispatch state lost");
+assert(m.legacy.compatibility.convergence.round===3,"legacy convergence lost");
+assert(m.legacy.compatibility.recovery.unclean===true,"legacy recovery lost");
+assert(m.legacy.compatibility.reviewScheduler.cursor===2,"legacy review scheduler lost");
+assert(m.legacy.compatibility.utilization.target===3,"legacy utilization lost");
+assert(m.legacy.auditLog.length===1&&m.legacy.sendLedger.length===1,"legacy audit/send ledger lost");
+assert(m.legacy.rawState.workerIdentity[0].conversationId==="abc","complete raw legacy snapshot not retained");
+assert(m.controls.armed===false&&m.controls.emergencyStop===false&&m.controls.requiresReconciliation===true,"v4 must force disarmed reconciliation");
+const remigrated=migrateWorkforceState(m);
+assert(remigrated===m,"current-schema migrated state must be idempotent");
 
 import {normalizeMissionContract} from "./mission-contract.js";
 import {verifyDiffScope} from "./scope-locks.js";
