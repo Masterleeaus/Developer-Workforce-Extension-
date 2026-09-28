@@ -132,6 +132,10 @@ export class TitanCredentialBroker{
     this._audit("credential-lease-revoked",{leaseId,credential:lease.credential,reason});
     return true;
   }
+  status(){
+    const grants=this.list(),leases=Object.values(this.state.credentialLeases||{});
+    return {registered:grants.length,activeLeases:leases.filter(x=>Number(x.expiresAt||0)>now()).length,expiredLeases:leases.filter(x=>Number(x.expiresAt||0)<=now()).length,grants};
+  }
   pruneExpired(){
     let removed=0;
     for(const [id,lease] of Object.entries(this.state.credentialLeases)){
