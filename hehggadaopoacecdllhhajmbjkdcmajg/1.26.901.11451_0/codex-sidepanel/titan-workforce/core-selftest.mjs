@@ -1,7 +1,7 @@
 import {CHAT_SLOTS,SUPERVISOR_SLOTS,BUILDER_SLOTS,ORCHESTRATOR_SLOTS,SLOT_IDS,SLOT_CLASS} from "./constants.js";
 import {canonicalSlotId,canonicalSupervisorForSquad,canonicalizePipelineSlot} from "./slot-id-adapter.js";
-import {createWorkforceState,validateWorkforceState} from "./state.js";
-import {migrateLegacy5x5} from "./migrations.js";
+import {createWorkforceState,normalizeWorkforceState,validateWorkforceState,validateWorkforceStateDetailed} from "./state.js";
+import {migrateLegacy5x5,migrateWorkforceState} from "./migrations.js";
 
 function assert(x,m){if(!x)throw new Error(m)}
 assert(SLOT_IDS.length===15,"expected 15 slots");
@@ -10,6 +10,65 @@ for(const id of SUPERVISOR_SLOTS)assert(SLOT_CLASS[id]==="work_supervisor",id+" 
 for(const id of BUILDER_SLOTS)assert(SLOT_CLASS[id]==="codex_builder",id+" class");
 for(const id of ORCHESTRATOR_SLOTS)assert(SLOT_CLASS[id]==="codex_orchestrator",id+" class");
 const s=createWorkforceState();assert(validateWorkforceState(s),"fresh state invalid");
+
+const cleanForward=createWorkforceState();cleanForward.futureFeature={version:7,enabled:true};
+const cleanForwardNormalized=normalizeWorkforceState(cleanForward);
+assert(cleanForwardNormalized.futureFeature?.version===7,"unknown forward-compatible top-level field should be preserved");
+assert(validateWorkforceStateDetailed(cleanForwardNormalized).ok,"normalized clean state should validate");
+
+const truncated=migrateWorkforceState({schemaVersion:4});
+assert(validateWorkforceState(truncated),"truncated current-schema state must be repaired to valid");
+assert(Object.keys(truncated.agents).length===15,"truncated state must recreate 15 slots");
+assert(truncated.controls.armed===false,"truncated state must be disarmed");
+assert(truncated.recovery.stateRepair.repaired===true&&truncated.recovery.stateRepair.severe===true,"truncated state repair should be recorded as severe");
+assert(truncated.recovery.stateRepair.rawSnapshot!=null,"severe repair must retain raw snapshot");
+
+const missingSlotFixture=createWorkforceState();delete missingSlotFixture.agents.A5;
+const repairedMissingSlot=normalizeWorkforceState(missingSlotFixture);
+assert(repairedMissingSlot.agents.A5?.id==="A5","missing slot must be recreated");
+assert(repairedMissingSlot.recovery.stateRepair.issues.some(x=>x.code==="MISSING_SLOT"&&x.slotId==="A5"),"missing slot repair should be diagnosed");
+
+const wrongClassFixture=createWorkforceState();wrongClassFixture.controls.armed=true;wrongClassFixture.agents.A1.executionClass="codex_builder";wrongClassFixture.agents.A1.squad="B";
+const repairedWrongClass=normalizeWorkforceState(wrongClassFixture);
+assert(repairedWrongClass.agents.A1.executionClass==="chat_worker"&&repairedWrongClass.agents.A1.squad==="A","canonical slot class/squad must be restored");
+assert(repairedWrongClass.agents.A1.control.quarantined===true,"repaired canonical slot corruption must quarantine affected slot");
+assert(repairedWrongClass.controls.armed===false,"severe slot corruption must force DISARMED");
+
+const malformedMissionFixture=createWorkforceState();malformedMissionFixture.missions=[];
+const repairedMalformedMissions=normalizeWorkforceState(malformedMissionFixture);
+assert(!Array.isArray(repairedMalformedMissions.missions)&&typeof repairedMalformedMissions.missions==="object","malformed mission map must be repaired");
+assert(repairedMalformedMissions.recovery.stateRepair.issues.some(x=>x.code==="MALFORMED_MISSIONS"),"malformed mission repair should be diagnosed");
+
+const halfAssignment=createWorkforceState();
+halfAssignment.missions.mhalf={id:"mhalf",title:"half",status:"assigned",assignedAgent:"A3"};
+const repairedHalf=normalizeWorkforceState(halfAssignment);
+assert(repairedHalf.agents.A3.missionId==="mhalf","mission-side half assignment should repair slot reverse reference");
+assert(validateWorkforceStateDetailed(repairedHalf).ok,"repaired half assignment must validate");
+
+const reverseHalf=createWorkforceState();
+reverseHalf.missions.mreverse={id:"mreverse",title:"reverse",status:"assigned",assignedAgent:null};
+reverseHalf.agents.B1.missionId="mreverse";reverseHalf.agents.B1.status="assigned";
+const repairedReverse=normalizeWorkforceState(reverseHalf);
+assert(repairedReverse.missions.mreverse.assignedAgent==="B1","slot-side half assignment should repair mission reverse reference");
+assert(validateWorkforceStateDetailed(repairedReverse).ok,"repaired reverse assignment must validate");
+
+const duplicateAssignment=createWorkforceState();duplicateAssignment.controls.armed=true;
+duplicateAssignment.missions.mdup={id:"mdup",title:"dup",status:"assigned",assignedAgent:"A1"};
+duplicateAssignment.agents.A1.missionId="mdup";duplicateAssignment.agents.A1.status="assigned";
+duplicateAssignment.agents.A2.missionId="mdup";duplicateAssignment.agents.A2.status="assigned";
+const repairedDuplicate=normalizeWorkforceState(duplicateAssignment);
+assert(repairedDuplicate.missions.mdup.assignedAgent===null,"ambiguous duplicate mission assignment must be cleared");
+assert(repairedDuplicate.agents.A1.missionId===null&&repairedDuplicate.agents.A2.missionId===null,"duplicate slot mission references must be cleared");
+assert(repairedDuplicate.agents.A1.control.quarantined&&repairedDuplicate.agents.A2.control.quarantined,"ambiguous duplicate assignment must quarantine affected slots");
+assert(repairedDuplicate.controls.armed===false,"ambiguous duplicate assignment must force DISARMED");
+assert(validateWorkforceStateDetailed(repairedDuplicate).ok,"post-quarantine duplicate repair must validate");
+
+const interruptedWrite=createWorkforceState();interruptedWrite.controls=null;interruptedWrite.provenance=[];interruptedWrite.agents.B2.missionId=99;
+const repairedInterrupted=normalizeWorkforceState(interruptedWrite);
+assert(repairedInterrupted.controls&&repairedInterrupted.controls.armed===false,"missing controls must be recreated");
+assert(!Array.isArray(repairedInterrupted.provenance),"malformed provenance must be repaired");
+assert(repairedInterrupted.agents.B2.missionId===null&&repairedInterrupted.agents.B2.control.quarantined,"invalid slot mission value must be cleared and quarantined");
+assert(repairedInterrupted.recovery.stateRepair.rawSnapshot!=null,"interrupted severe write must retain raw snapshot");
 assert(canonicalSlotId("supervisor-a")==="SUPERVISOR_A","supervisor-a mapping");
 assert(canonicalSlotId("supervisor-b")==="SUPERVISOR_B","supervisor-b mapping");
 assert(canonicalSlotId("builder-a",{expectedExecutionClass:"codex_builder"})==="BUILDER_A","builder-a mapping");
