@@ -17,8 +17,8 @@ async function load(){
  const state=stored[KEY]?migrateWorkforceState(stored[KEY]):migrateWorkforceState(stored[LEGACY_KEY]||createWorkforceState());
  const audit=(type,data={})=>window.dispatchEvent(new CustomEvent("titan-workforce:audit",{detail:{type,data,at:Date.now()}}));
  const services=new TitanExecutionServices();
- const controller=new TitanWorkforceController(state,{audit,services});
  const missions=new TitanMissionControl(state);
+ const controller=new TitanWorkforceController(state,{audit,services,missionControl:missions});
  installLegacyNativeBridge(services,audit);
  const conversations=createConversationService();installConversationServices(services,{chat:conversations,work:conversations},audit);
  const integration=new TitanWorkforceIntegration({state,controller,missionControl:missions,services,audit});
