@@ -18,7 +18,24 @@ function normalizeState(){
  state.reviewQueue=Array.isArray(state.reviewQueue)?state.reviewQueue:[];
  state.reviewHistory=Array.isArray(state.reviewHistory)?state.reviewHistory.slice(-50):[];
  state.reviewAttempts=state.reviewAttempts&&typeof state.reviewAttempts==='object'?state.reviewAttempts:{};
- state.ownershipLeases=Array.isArray(state.ownershipLeases)?state.ownershipLeases:[],missionQueue:[],missionHistory:[],dispatch:{minGapMs:1500,maxConcurrent:5,lastSendAt:0,pending:[]},checkpoints:[null,null,null,null,null],convergence:{round:0,lastCheckpointPasses:[0,0,0,0,0],history:[]},auditLog:[],recovery:{lastShutdownAt:null,lastStartupAt:null,unclean:false,reconciled:false},workerIdentity:[null,null,null,null,null],sendLedger:[],approvals:[],reviewScheduler:{cursor:0,lastGrantedAt:[0,0,0,0,0]},utilization:{target:5,min:2,max:5,lastAdjustedAt:0,reason:'normal',lastAdvanceAt:[0,0,0,0,0],grants:0};
+ state.ownershipLeases=Array.isArray(state.ownershipLeases)?state.ownershipLeases:[];
+ state.missionQueue=Array.isArray(state.missionQueue)?state.missionQueue:[];
+ state.missionHistory=Array.isArray(state.missionHistory)?state.missionHistory:[];
+ state.dispatch=state.dispatch&&typeof state.dispatch==='object'?{...DEFAULT.dispatch,...state.dispatch}:{...DEFAULT.dispatch};
+ state.dispatch.pending=Array.isArray(state.dispatch.pending)?state.dispatch.pending:[];
+ state.checkpoints=Array.isArray(state.checkpoints)?state.checkpoints.slice(0,5):[null,null,null,null,null];while(state.checkpoints.length<5)state.checkpoints.push(null);
+ state.convergence=state.convergence&&typeof state.convergence==='object'?{...DEFAULT.convergence,...state.convergence}:{...DEFAULT.convergence};
+ state.convergence.lastCheckpointPasses=Array.isArray(state.convergence.lastCheckpointPasses)?state.convergence.lastCheckpointPasses.slice(0,5):[0,0,0,0,0];while(state.convergence.lastCheckpointPasses.length<5)state.convergence.lastCheckpointPasses.push(0);
+ state.convergence.history=Array.isArray(state.convergence.history)?state.convergence.history:[];
+ state.auditLog=Array.isArray(state.auditLog)?state.auditLog:[];
+ state.recovery=state.recovery&&typeof state.recovery==='object'?{...DEFAULT.recovery,...state.recovery}:{...DEFAULT.recovery};
+ state.workerIdentity=Array.isArray(state.workerIdentity)?state.workerIdentity.slice(0,5):[null,null,null,null,null];while(state.workerIdentity.length<5)state.workerIdentity.push(null);
+ state.sendLedger=Array.isArray(state.sendLedger)?state.sendLedger:[];
+ state.approvals=Array.isArray(state.approvals)?state.approvals:[];
+ state.reviewScheduler=state.reviewScheduler&&typeof state.reviewScheduler==='object'?{...DEFAULT.reviewScheduler,...state.reviewScheduler}:{...DEFAULT.reviewScheduler};
+ state.reviewScheduler.lastGrantedAt=Array.isArray(state.reviewScheduler.lastGrantedAt)?state.reviewScheduler.lastGrantedAt.slice(0,5):[0,0,0,0,0];while(state.reviewScheduler.lastGrantedAt.length<5)state.reviewScheduler.lastGrantedAt.push(0);
+ state.utilization=state.utilization&&typeof state.utilization==='object'?{...DEFAULT.utilization,...state.utilization}:{...DEFAULT.utilization};
+ state.utilization.lastAdvanceAt=Array.isArray(state.utilization.lastAdvanceAt)?state.utilization.lastAdvanceAt.slice(0,5):[0,0,0,0,0];while(state.utilization.lastAdvanceAt.length<5)state.utilization.lastAdvanceAt.push(0);
 }
 async function tabExists(id){if(!id)return false;try{await chrome.tabs.get(id);return true}catch{return false}}
 async function recoverTabs(){
