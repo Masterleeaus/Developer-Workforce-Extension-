@@ -39,6 +39,7 @@ export class TitanWorkforceController{
  }
  arm(){
   if(this.state.controls.emergencyStop)throw controlError("EMERGENCY_STOP_ACTIVE","Cannot arm during emergency stop");
+  if(this.state.controls.preflightPassed!==true)throw controlError("PREFLIGHT_REQUIRED","Cannot arm before required 15-agent preflight passes",{preflightAt:this.state.controls.preflightAt||null});
   const stopped=this.registry.list().filter(a=>ensureAgentControlState(a).emergencyStopped);
   if(stopped.length)throw controlError("AGENT_EMERGENCY_STOPPED","Cannot arm while agent emergency-stop flags remain",{agents:stopped.map(x=>x.id)});
   this.state.controls.armed=true;this.audit("workforce-armed",{});return true
