@@ -1,3 +1,4 @@
+import {readFile} from "node:fs/promises";
 import assert from "node:assert/strict";
 import {TitanCapabilityBroker} from "./capability-broker.js";
 import {TitanMcpRegistry,classifyMcpTool,createChromeWebMcpProvider} from "./mcp-registry.js";
@@ -117,3 +118,30 @@ function writeTool(name="update_state",registration_id="w1"){
 }
 
 console.log("Titan MCP Registry tests passed");
+
+
+{
+ const registry=new TitanMcpRegistry();
+ registry.registerServer({id:"profiles",transport:"custom",allowedProfiles:["security"]},{
+  async listTools(){return [readTool()]},
+  async callTool(){return "ok"}
+ });
+ await assert.rejects(
+  ()=>registry.invoke("profiles","read_state",{}, {executionClass:"chat_worker"}),
+  e=>e.code==="MCP_POLICY_DENIED"
+ );
+ assert.equal(
+  await registry.invoke("profiles","read_state",{}, {executionClass:"chat_worker",profileIds:["security"]}),
+  "ok"
+ );
+}
+
+{
+ const main=await readFile(new URL("../../content-scripts/webmcp.js",import.meta.url),"utf8");
+ const bridge=await readFile(new URL("../../content-scripts/webmcp-bridge.js",import.meta.url),"utf8");
+ assert(main.includes("document.modelContext"),"MAIN WebMCP adapter must use the current document.modelContext API");
+ assert(main.includes("WEBMCP_STALE_REGISTRATION"),"MAIN adapter must reject stale registrations before execution");
+ assert(bridge.includes('titan:webmcp:list'),"isolated bridge must expose list messaging");
+ assert(bridge.includes('titan:webmcp:invoke'),"isolated bridge must expose invoke messaging");
+ console.log("WebMCP content-script contract passed");
+}
