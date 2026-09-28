@@ -37,6 +37,8 @@ jobs:
         run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/live-chat-runtime.test.mjs
       - name: Background autonomous runtime ownership
         run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/background-runtime.test.mjs
+      - name: Durability and restart recovery
+        run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/durability-selftest.mjs
       - name: Lifecycle maintenance and merge backpressure
         run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/maintenance.test.mjs
       - name: Repository intelligence and architecture index

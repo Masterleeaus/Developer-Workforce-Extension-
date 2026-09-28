@@ -28,6 +28,7 @@ import {TitanUsageGovernor} from "./usage-governor.js";
 import {TitanLifecycleManager} from "./maintenance.js";
 import {TitanWorkforceObservability} from "./observability.js";
 import {TitanConversationLifecycle} from "./conversation-lifecycle.js";
+import {ensureDurabilityState,TitanAuditLog,TitanSendLedger,beginRecoverySession,finishRecoverySession,reconcileBoundConversations,markRecoveryReconciled} from "./durability.js";
 
 export const WORKFORCE_STORAGE_KEY="titanDeveloperWorkforceV4";
 export const LEGACY_STORAGE_KEY="titan5x5.state.v2";
@@ -50,17 +51,17 @@ export async function createTitanWorkforceRuntime({
 }={}){
  if(!storage?.get||!storage?.set)throw new Error("Workforce runtime requires chrome.storage.local");
  const stored=await storage.get([WORKFORCE_STORAGE_KEY,LEGACY_STORAGE_KEY]);
- const state=stored[WORKFORCE_STORAGE_KEY]
+ const state=ensureDurabilityState(stored[WORKFORCE_STORAGE_KEY]
   ?migrateWorkforceState(stored[WORKFORCE_STORAGE_KEY])
-  :migrateWorkforceState(stored[LEGACY_STORAGE_KEY]||createWorkforceState());
+  :migrateWorkforceState(stored[LEGACY_STORAGE_KEY]||createWorkforceState()));
+ const save=async()=>{state.updatedAt=Date.now();await storage.set({[WORKFORCE_STORAGE_KEY]:state});return true};
 
  let observability=null;
  let conversationLifecycle=null;
+ const auditLog=new TitanAuditLog(state,{maxEntries:2000});
  const audit=(type,data={})=>{
-  const at=Date.now();
-  state.auditLog=Array.isArray(state.auditLog)?state.auditLog:[];
-  state.auditLog.push({type,data:clone(data),at,owner:"background"});
-  state.auditLog=state.auditLog.slice(-1000);
+  const entry=auditLog.append(type,{...clone(data),owner:"background"});
+  const at=entry.at;
   try{observability?.recordAudit(type,data,{at})}catch(error){
    state.observabilityErrors=Array.isArray(state.observabilityErrors)?state.observabilityErrors:[];
    state.observabilityErrors.push({at,type,message:String(error?.message||error)});
@@ -73,9 +74,13 @@ export async function createTitanWorkforceRuntime({
     else if(type==="supervisor-review-requested"&&data.supervisorId)conversationLifecycle.note(data.supervisorId,{cycleCompleted:true});
    }
   }catch{}
-  emit(eventTarget,"titan-workforce:audit",{type,data,at,owner:"background"});
+  emit(eventTarget,"titan-workforce:audit",{type,data,at,id:entry.id,owner:"background"});
  };
  observability=new TitanWorkforceObservability(state);
+ const recoverySession=beginRecoverySession(state,{audit});
+ const sendLedger=new TitanSendLedger(state,{audit});
+ const ambiguousActions=sendLedger.recoverAmbiguous();
+ if(recoverySession.unclean||ambiguousActions.length){state.controls.armed=false;state.controls.requiresReconciliation=true}
 
  const services=new TitanExecutionServices();
  const capabilities=new TitanCapabilityBroker({audit});
@@ -87,10 +92,11 @@ export async function createTitanWorkforceRuntime({
  installLegacyNativeBridge(services,audit);
  const conversations=createConversationService();
  installConversationServices(services,{chat:conversations,work:conversations},audit);
+ const conversationRecovery=await reconcileBoundConversations(state,conversations,{audit});
  installStockServiceFallbacks(services,{registry:controller.registry,conversationService:conversations,fetchImpl,audit});
  const executionCapabilities=installExecutionCapabilities({services,broker:capabilities,audit});
  executionCapabilities.sync();
- const approvals=new TitanApprovalStore(state,{audit});
+ const approvals=new TitanApprovalStore(state,{audit,save});
  const credentials=new TitanCredentialBroker(state,{audit,approvalStore:approvals});
  const runtimeVerifiers=new TitanRuntimeVerifierRegistry({audit});
  capabilities.authorize=createHighImpactAuthorizer({approvalStore:approvals,audit});
@@ -98,7 +104,7 @@ export async function createTitanWorkforceRuntime({
   getChangedPaths:createAuthoritativeChangedPathResolver(capabilities,{audit}),
   audit,
   requestApproval:req=>approvals.request(req),
-  persistScopeExpansion:persistApprovedScopeExpansion({state,missionControl:missions,audit})
+  persistScopeExpansion:persistApprovedScopeExpansion({state,missionControl:missions,audit,save})
  });
  installScopeGuard();
  const resyncCapabilities=()=>queueMicrotask(()=>{executionCapabilities.sync();installScopeGuard()});
@@ -107,12 +113,11 @@ export async function createTitanWorkforceRuntime({
  const usageGovernor=new TitanUsageGovernor(state,{audit});
  const architecture=new TitanArchitectureIndex({audit});
  const repositoryIntelligence=new TitanRepositoryIntelligence({state,audit});
- const integration=new TitanWorkforceIntegration({state,controller,missionControl:missions,services,capabilities,repositoryIntelligence,architectureIndex:architecture,usageGovernor,audit});
+ const integration=new TitanWorkforceIntegration({state,controller,missionControl:missions,services,capabilities,repositoryIntelligence,architectureIndex:architecture,usageGovernor,sendLedger,save,audit});
  integration.bindGlobals();
  const missionCompiler=new TitanMissionCompiler({profiles:integration.profileApi,audit});
  const contextCompiler=new TitanContextCompiler({profiles:integration.profileApi,contextProvider:(missionId,opts)=>integration.contextForMission(missionId,opts),provenance:integration.provenance,usageGovernor,audit});
- const save=async()=>{state.updatedAt=Date.now();await storage.set({[WORKFORCE_STORAGE_KEY]:state});return true};
- const liveChat=new TitanLiveChatRuntime({state,integration,missionControl:missions,services,usageGovernor,audit,save,pollMs,eventTarget});
+ const liveChat=new TitanLiveChatRuntime({state,integration,missionControl:missions,services,usageGovernor,sendLedger,audit,save,pollMs,eventTarget});
  const replaceAgentConversation=async(agentId,conversation,{checkpoint=null}={})=>{
   const slot=controller.registry.get(agentId);if(!slot)throw new Error("Unknown agent "+agentId);
   if(!["chat_worker","work_supervisor"].includes(slot.executionClass))throw new Error("Conversation replacement is only supported for Chat workers and Work supervisors");
@@ -170,10 +175,19 @@ export async function createTitanWorkforceRuntime({
  };
  eventTarget?.addEventListener?.("titan-workforce:merge-complete",onMergeIndex);
 
+ const reconcileRecovery=async({evidence={}}={})=>{
+  await reconcileBoundConversations(state,conversations,{audit});
+  markRecoveryReconciled(state,{audit,evidence});
+  controller.markReconciled?.(evidence);
+  await save();
+  return {ok:true,pendingActions:sendLedger.pending(),conversationReconciliation:clone(state.recovery.conversationReconciliation||null)};
+ };
+ const finishSession=async()=>{finishRecoverySession(state,{audit});await save();return true};
  const api={
-  state,controller,missions,services,capabilities,mcp,approvals,credentials,runtimeVerifiers,executionCapabilities,
+  state,controller,missions,services,capabilities,mcp,approvals,credentials,runtimeVerifiers,auditLog,sendLedger,executionCapabilities,
   integration,architecture,repositoryIntelligence,missionCompiler,contextCompiler,usageGovernor,liveChat,controls,mergeController,lifecycle,observability,conversationLifecycle,
-  bindAgentConversation,
+  bindAgentConversation,reconcileRecovery,finishSession,
+  reconcileAction:(key,result)=>{const out=sendLedger.reconcile(key,result);save().catch(()=>{});return out},
   diagnostics:()=>buildCockpitDiagnostics(api),
   metrics:()=>observability.metrics({agents:controller.registry.list()}),
   replayEvents:options=>observability.replay(options),
@@ -185,6 +199,7 @@ export async function createTitanWorkforceRuntime({
   save,
   dispose(){
    liveChat.stop();
+   finishRecoverySession(state,{audit});
    stopNativeEventBridge?.();
    eventTarget?.removeEventListener?.("titan:stock-native-service",resyncCapabilities);
    eventTarget?.removeEventListener?.("titan-workforce:merge-complete",onMergeIndex);
@@ -194,7 +209,7 @@ export async function createTitanWorkforceRuntime({
  globalThis.TitanMcpRegistry=mcp;
  globalThis.TitanDeveloperWorkforce=api;
  await save();
- emit(eventTarget,"titan-workforce:ready",{schemaVersion:state.schemaVersion,readiness:integration.readiness(),owner:"background"});
+ emit(eventTarget,"titan-workforce:ready",{schemaVersion:state.schemaVersion,readiness:integration.readiness(),owner:"background",recovery:{unclean:recoverySession.unclean,ambiguousActions:ambiguousActions.length,conversationsOk:conversationRecovery.ok}});
  return api;
 }
 
@@ -210,6 +225,7 @@ export function workforceRuntimeSnapshot(api){
   mcp:api.mcp?.status?.()||null,
   capabilities:api.capabilities?.status?.()||null,
   usage:api.usageGovernor?.status?.()||null,
+  recovery:clone(api.state.recovery||null),
   lifecycle:clone(api.state.lifecycle||null),
   mergePressure:api.mergeController?.state||null,
   readiness:api.integration.readiness(),

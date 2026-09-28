@@ -80,6 +80,7 @@ export class TitanRuntimeOwner{
    mcp:clone(api.mcp?.status?.()||null),
    capabilities:clone(api.capabilities?.status?.()||null),
    usage:clone(api.usageGovernor?.status?.()||null),
+   recovery:clone(state.recovery||null),
    lifecycle:clone(state.lifecycle||null),
    mergePressure:api.mergeController?.state||null,
    readiness:clone(api.integration?.readiness?.()||null),
@@ -97,7 +98,9 @@ export class TitanRuntimeOwner{
    case "disarm": result=api.controller.disarm(payload.reason||"remote");await api.save();break;
    case "emergencyStop": result=api.controller.emergencyStop(payload.reason||"remote");await api.save();break;
    case "clearEmergencyStop": result=api.controller.clearEmergencyStop({reconciled:!!payload.reconciled});await api.save();break;
-   case "markReconciled": result=api.controller.markReconciled(payload.evidence||{});await api.save();break;
+   case "markReconciled": result=api.reconcileRecovery?await api.reconcileRecovery({evidence:payload.evidence||{}}):api.controller.markReconciled(payload.evidence||{});await api.save();break;
+   case "reconcileAction": result=api.reconcileAction(payload.key,payload.result||{});await api.save();break;
+   case "approvalDecide": result=api.approvals.decide(payload.id,payload.decision||{});await api.save();break;
    case "missionUpsert": result=api.missions.upsert(payload.mission||payload);await api.save();break;
    case "discoverConversations":{
     const tabs=this.tabs?.query?await this.tabs.query({}):[];
@@ -142,6 +145,7 @@ export class TitanRuntimeOwner{
  }
  async suspend(){
   if(!this.api)return true;
+  await this.api.finishSession?.();
   await this.api.save();
   return true;
  }
