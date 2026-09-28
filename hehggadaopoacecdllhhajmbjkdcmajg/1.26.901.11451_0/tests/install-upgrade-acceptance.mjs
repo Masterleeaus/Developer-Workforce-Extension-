@@ -1,0 +1,11 @@
+import assert from "node:assert/strict";
+import {createWorkforceState,validateWorkforceStateDetailed} from "../codex-sidepanel/titan-workforce/state.js";
+import {migrateLegacy5x5,migrateWorkforceState} from "../codex-sidepanel/titan-workforce/migrations.js";
+import {SLOT_IDS} from "../codex-sidepanel/titan-workforce/constants.js";
+const fresh=createWorkforceState();
+assert.equal(SLOT_IDS.length,15);assert.equal(Object.keys(fresh.agents).length,15);assert(validateWorkforceStateDetailed(fresh).ok);assert.equal(fresh.controls.armed,false);
+const legacy={enabled:true,armed:true,workerTabs:[11,12,13,14,15],workerIdentity:[{key:"https://chatgpt.com/c/1",tabId:11},null,null,null,null],missions:[{id:"m1",title:"legacy mission"},null,null,null,null],ownershipLeases:[{resource:"src/a",worker:0},{resource:"src/b",worker:1}],reviewQueue:[{id:"r1"}],auditLog:[{type:"legacy"}],sendLedger:[{key:"send1"}],approvals:[{id:"approval1",approved:true}],recovery:{unclean:true}};
+const migrated=migrateLegacy5x5(legacy);
+assert(validateWorkforceStateDetailed(migrated).ok);assert.equal(Object.keys(migrated.agents).length,15);assert.equal(migrated.controls.armed,false);assert.equal(migrated.recovery.migration.needsReconciliation,true);assert.equal(migrated.agents.A1.conversation.key,"https://chatgpt.com/c/1");assert.equal(migrated.legacy.compatibility.ownershipLeases[0].agentId,"A1");assert.equal(migrated.legacy.compatibility.ownershipLeases[1].agentId,"A2");assert.equal(migrated.legacy.rawState.sendLedger[0].key,"send1");
+const again=migrateWorkforceState(migrated);assert(validateWorkforceStateDetailed(again).ok);assert.equal(again.legacy.rawState.sendLedger.length,1);assert.equal(again.agents.A1.missionId,"m1");
+console.log("Fresh install and v3.0.34 upgrade acceptance PASS");
