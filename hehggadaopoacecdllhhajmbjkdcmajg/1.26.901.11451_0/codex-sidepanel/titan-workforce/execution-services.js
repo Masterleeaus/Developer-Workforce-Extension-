@@ -1,0 +1,14 @@
+export const SERVICE_KINDS=Object.freeze(["chat","work","codex","github","repository","runtime","terminal"]);
+export class TitanExecutionServices{
+ constructor(){this.services=new Map()}
+ register(kind,service){
+   if(!SERVICE_KINDS.includes(kind))throw new Error("Unknown execution service "+kind);
+   if(!service)throw new Error("Service required");
+   this.services.set(kind,service);return service;
+ }
+ unregister(kind){return this.services.delete(kind)}
+ get(kind){return this.services.get(kind)||null}
+ require(kind){const s=this.get(kind);if(!s)throw new Error("Execution service unavailable: "+kind);return s}
+ available(kind){return !!this.get(kind)}
+ status(){return Object.fromEntries(SERVICE_KINDS.map(k=>[k,{available:this.available(k),capabilities:this.get(k)?.capabilities||[]}]))}
+}
