@@ -33,54 +33,20 @@ function fixture({
   get:id=>state.agents[id]||null,
   list:executionClass=>Object.values(state.agents).filter(x=>!executionClass||x.executionClass===executionClass)
  };
+ const controller={registry,assignMission(missionId,slotId){const m=missionControl.get(missionId),slot=registry.get(slotId),old=m.assignedAgent;if(old&&old!==slotId){const prev=registry.get(old);if(prev&&prev.missionId===missionId)prev.missionId=null}slot.missionId=missionId;m.assignedAgent=slotId;return{mission:m,slot}}};
  const calls={work:0,build:0,orchestrate:0,save:0};
- const workResult={
-  next_decision:workDecision,
-  approved_findings:["finding"],
-  ...(includeDelta?{approved_delta:{
-   required_changes:["edit scoped implementation"],
-   scope_paths:["src/**"],
-   expected_files:["src/feature.js"],
-   tests:[{name:"unit",passed:true,status:"passed"}]
-  }}:{})
- };
+ const workResult={next_decision:workDecision,approved_findings:["finding"],...(includeDelta?{approved_delta:{required_changes:["edit scoped implementation"],scope_paths:["src/**"],expected_files:["src/feature.js"],tests:[{name:"unit",passed:true,status:"passed"}]}}:{})};
  const integration={
-  controller:{registry},
-  normalizePipelineMission:m=>({
-   id:m.id,title:m.title,goal:m.goal,repository:m.repository,branch:m.branch,
-   constraints:m.constraints||[],acceptance_criteria:m.acceptanceCriteria||[],
-   runtime_requirements:m.runtimeRequirements||[],metadata:{}
-  }),
+  controller,
+  normalizePipelineMission:m=>({id:m.id,title:m.title,goal:m.goal,repository:m.repository,branch:m.branch,constraints:m.constraints||[],acceptance_criteria:m.acceptanceCriteria||[],runtime_requirements:m.runtimeRequirements||[],metadata:{}}),
   async requestWorkReview(_squad,request){calls.work++;assert.equal(request.output_contract.format,"json");return{parsed:workResult}},
-  async dispatchCodexPacket(builderId,packet){
-   calls.build++;assert.equal(builderId,"BUILDER_A");assert.equal(packet.builder_slot,"builder-a");
-   return{
-    files_changed:["src/feature.js"],diff:"diff --git a/src/feature.js b/src/feature.js",
-    tests:[{name:"unit",passed:true,status:"passed"}],
-    commit:{sha:"abc"},branch:{name:"issue-1/test"},pr:{number:1},ci:{passed:true},
-    blockers:[],remaining_implementation:[]
-   };
-  },
-  async orchestrate(bundle){
-   calls.orchestrate++;assert.equal(bundle.output_contract.format,"json");
-   return{decision:orchestratorDecision,reason:"mock orchestrator"};
-  }
+  async dispatchCodexPacket(builderId,packet){calls.build++;assert.equal(builderId,"BUILDER_A");assert.equal(packet.builder_slot,"builder-a");return{files_changed:["src/feature.js"],diff:"diff --git a/src/feature.js b/src/feature.js",tests:[{name:"unit",passed:true,status:"passed"}],commit:{sha:"abc"},branch:{name:"issue-1/test"},pr:{number:1,url:"https://example.invalid/pr/1"},ci:{passed:true},blockers:[],remaining_implementation:[]}},
+  async orchestrate(bundle){calls.orchestrate++;assert.equal(bundle.output_contract.format,"json");return{decision:orchestratorDecision,reason:"mock orchestrator"}}
  };
- const services={
-  get(kind){
-   if(kind==="codex")return{source:"native-mock",build(){},orchestrate(){}};
-   if(kind==="github")return{verify:async()=>githubTruth};
-   if(kind==="runtime")return null;
-   return null;
-  }
- };
- const capabilitySet=new Set(capabilities);
- const broker={has:name=>capabilitySet.has(name)};
- const audit=[];
- const runtime=new TitanWorkCodexRuntime({
-  state,integration,missionControl,services,capabilities:broker,gitSubstrate,pipelineApi:pipeline,
-  audit:(type,data)=>audit.push({type,data}),save:async()=>{calls.save++;return true}
- });
+ const services={get(kind){if(kind==="codex")return{source:"native-mock",build(){},orchestrate(){}};if(kind==="github")return{verify:async()=>githubTruth};if(kind==="runtime")return null;return null}};
+ const capabilitySet=new Set(capabilities),broker={has:name=>capabilitySet.has(name)},audit=[];
+ const gitSubstrate=new TitanGitMissionSubstrate(state);gitSubstrate.acquire({missionId:mission.id,builderId:"BUILDER_A",branch:mission.branch,worktree:"/tmp/mission-1",scopePaths:mission.scopePaths});
+ const runtime=new TitanWorkCodexRuntime({state,integration,missionControl,services,capabilities:broker,gitSubstrate,pipelineApi:pipeline,audit:(type,data)=>audit.push({type,data}),save:async()=>{calls.save++;return true}});
  const event={
   type:"supervisor_review_required",workerId:"A1",squad:"A",missionId:mission.id,cycleId:"cycle-1",
   detail:{completedPasses:[1,2,3,4,5].map(passNumber=>({passNumber,result:{text:"pass "+passNumber}}))}
