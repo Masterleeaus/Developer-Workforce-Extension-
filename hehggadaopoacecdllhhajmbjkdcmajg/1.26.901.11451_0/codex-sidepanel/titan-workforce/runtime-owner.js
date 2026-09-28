@@ -47,6 +47,7 @@ export class TitanRuntimeOwner{
   this.tickPromise=(async()=>{
    const api=await this.ensure();
    await api.liveChat.tick();
+   await api.lifecycle?.run?.();
    await api.save();
    const snapshot=this.snapshot(api);
    this.notify?.({type:"tick",reason,snapshot});
@@ -67,6 +68,8 @@ export class TitanRuntimeOwner{
    mcp:clone(api.mcp?.status?.()||null),
    capabilities:clone(api.capabilities?.status?.()||null),
    usage:clone(api.usageGovernor?.status?.()||null),
+   lifecycle:clone(state.lifecycle||null),
+   mergePressure:api.mergeController?.state||null,
    readiness:clone(api.integration?.readiness?.()||null)
   };
  }
