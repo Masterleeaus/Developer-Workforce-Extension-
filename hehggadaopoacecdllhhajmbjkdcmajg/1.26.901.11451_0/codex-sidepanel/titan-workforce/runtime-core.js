@@ -18,6 +18,8 @@ import {enforceScopedCodexBuildCapability} from "./scoped-codex-capability.js";
 import {TitanLiveChatRuntime} from "./live-chat-runtime.js";
 import {TitanArchitectureIndex} from "./architecture-index.js";
 import {TitanRepositoryIntelligence} from "./repository-intelligence.js";
+import {TitanMissionCompiler} from "./mission-compiler.js";
+import {TitanContextCompiler} from "./context-compiler.js";
 
 export const WORKFORCE_STORAGE_KEY="titanDeveloperWorkforceV4";
 export const LEGACY_STORAGE_KEY="titan5x5.state.v2";
@@ -79,6 +81,8 @@ export async function createTitanWorkforceRuntime({
  const repositoryIntelligence=new TitanRepositoryIntelligence({state,audit});
  const integration=new TitanWorkforceIntegration({state,controller,missionControl:missions,services,capabilities,repositoryIntelligence,architectureIndex:architecture,audit});
  integration.bindGlobals();
+ const missionCompiler=new TitanMissionCompiler({profiles:integration.profileApi,audit});
+ const contextCompiler=new TitanContextCompiler({profiles:integration.profileApi,contextProvider:(missionId,opts)=>integration.contextForMission(missionId,opts),provenance:integration.provenance,audit});
  const save=async()=>{state.updatedAt=Date.now();await storage.set({[WORKFORCE_STORAGE_KEY]:state});return true};
  const liveChat=new TitanLiveChatRuntime({state,integration,missionControl:missions,services,audit,save,pollMs});
  if(startTimer)liveChat.start();
@@ -103,7 +107,7 @@ export async function createTitanWorkforceRuntime({
 
  const api={
   state,controller,missions,services,capabilities,mcp,approvals,executionCapabilities,
-  integration,architecture,repositoryIntelligence,liveChat,controls,mergeController,
+  integration,architecture,repositoryIntelligence,missionCompiler,contextCompiler,liveChat,controls,mergeController,
   stopNativeEventBridge,
   stopCapabilityResync:()=>eventTarget?.removeEventListener?.("titan:stock-native-service",resyncCapabilities),
   stopRepositoryIndexRefresh:()=>eventTarget?.removeEventListener?.("titan-workforce:merge-complete",onMergeIndex),
