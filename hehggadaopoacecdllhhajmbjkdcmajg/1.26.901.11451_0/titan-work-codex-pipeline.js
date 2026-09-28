@@ -20,6 +20,7 @@
   });
   const NORMAL_EPOCH_MAX = 15;
   const VALID_EPOCHS = Object.freeze([5, 10, 15]);
+  const WORK_SUPERVISOR_SLOTS = Object.freeze(["supervisor-a", "supervisor-b"]);
   const BUILDER_SLOTS = Object.freeze(["builder-a", "builder-b"]);
 
   const adapters = {
@@ -192,6 +193,37 @@
     return delta;
   }
 
+  function chooseWorkSupervisor(input) {
+    input = input || {};
+    const squad = String(input.squad || "").toUpperCase();
+    const requested = input.supervisor_slot || input.supervisorSlot || null;
+    if (requested) {
+      assert(WORK_SUPERVISOR_SLOTS.includes(requested), "invalid Work supervisor slot");
+      if (squad === "A") assert(requested === "supervisor-a", "Squad A must route to supervisor-a");
+      if (squad === "B") assert(requested === "supervisor-b", "Squad B must route to supervisor-b");
+      return requested;
+    }
+    if (squad === "A") return "supervisor-a";
+    if (squad === "B") return "supervisor-b";
+    throw new Error("unable to route Work supervisor without squad A/B");
+  }
+
+  function createSupervisorReviewRequest(input) {
+    input = input || {};
+    const slot = chooseWorkSupervisor(input);
+    return {
+      schema_version: 1,
+      supervisor_slot: slot,
+      mission: normalizeMission(input.mission),
+      worker: requiredString(String(input.worker || ""), "worker"),
+      squad: requiredString(String(input.squad || ""), "squad"),
+      cycle: Number.isInteger(input.cycle) && input.cycle > 0 ? input.cycle : 1,
+      passes_completed: validateEpochPasses(input.passes_completed || input.passesCompleted || 5),
+      chat_cycle: clone(input.chat_cycle || input.chatCycle || null),
+      provenance: arr(input.provenance)
+    };
+  }
+
   function createCodexImplementationPacket(delta, input, options) {
     input = input || {};
     assert(delta && delta.delta_id, "ApprovedImplementationDelta is required");
@@ -250,12 +282,27 @@
   }
 
   function assignBuilder(delta, input, state, options) {
+    input = input || {};
     const provisional = createCodexImplementationPacket(delta, input, options);
-    const slot = input && (input.builder_slot || input.builderSlot) || chooseBuilder(provisional, state);
-    assert(BUILDER_SLOTS.includes(slot), "invalid builder slot");
+    const requested = input.builder_slot || input.builderSlot || null;
+    let slot;
+
+    if (requested) {
+      assert(BUILDER_SLOTS.includes(requested), "invalid builder slot");
+      const s = (state || {})[requested] || {};
+      assert(!s.blocked, "requested builder is blocked");
+      if (s.repository && provisional.repository) {
+        assert(s.repository === provisional.repository, "requested builder repository mismatch");
+      }
+      assert(!pathsConflict(provisional.scope_paths, arr(s.owned_paths)), "requested builder conflicts with scope ownership");
+      slot = requested;
+    } else {
+      slot = chooseBuilder(provisional, state);
+    }
+
     const packet = Object.assign({}, provisional, {
       builder_slot: slot,
-      packet_id: (input && (input.packet_id || input.packetId)) || "packet:" + delta.delta_id + ":" + slot
+      packet_id: input.packet_id || input.packetId || "packet:" + delta.delta_id + ":" + slot
     });
     audit("codex.builder.assigned", packet);
     return packet;
@@ -444,10 +491,13 @@
     PIPELINE_STATES,
     VALID_EPOCHS,
     NORMAL_EPOCH_MAX,
+    WORK_SUPERVISOR_SLOTS,
     BUILDER_SLOTS,
     registerAdapters,
     getAdapters,
     normalizeMission,
+    chooseWorkSupervisor,
+    createSupervisorReviewRequest,
     createCycleReview,
     nextResearchEpoch,
     compileApprovedImplementationDelta,
