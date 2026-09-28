@@ -1,5 +1,5 @@
 export async function runTitanPreflight(){
- const checks=[];const add=(name,ok,detail="")=>checks.push({name,ok:!!ok,detail});
+ const checks=[];const add=(name,ok,detail="",required=true)=>checks.push({name,ok:!!ok,detail,required});
  add("Chrome extension API",!!globalThis.chrome?.runtime,chrome?.runtime?.id||"missing");
  add("Storage API",!!chrome?.storage?.local);add("Tabs API",!!chrome?.tabs);add("Scripting API",!!chrome?.scripting);add("Debugger API",!!chrome?.debugger);
  const api=window.TitanDeveloperWorkforce;
@@ -18,6 +18,13 @@ export async function runTitanPreflight(){
  add("GitHub Truth",svc.github?.available===true||!!window.TitanGitHubTruth);
  add("Repository Context",svc.repository?.available===true||!!window.TitanRepositoryContext);
  add("Runtime Verification",svc.runtime?.available===true||!!window.TitanRuntimeVerification);
+ add("Codex service",svc.codex?.available===true,svc.codex?.source||"unavailable",false);
+ add("Git service",svc.git?.available===true,svc.git?.source||"unavailable",false);
+ add("GitHub service",svc.github?.available===true,svc.github?.source||"unavailable",false);
+ add("Repository service",svc.repository?.available===true,svc.repository?.source||"unavailable",false);
+ add("Terminal service",svc.terminal?.available===true,svc.terminal?.source||"unavailable",false);
+ add("Browser service",svc.browser?.available===true,svc.browser?.source||"unavailable",false);
+ add("Server service",svc.server?.available===true,svc.server?.source||"unavailable",false);
  add("MCP service",svc.mcp?.available===true);
  const mcp=api?.mcp?.status?.();
  add("MCP registry",!!api?.mcp,mcp?JSON.stringify({servers:mcp.count,online:mcp.online,tools:mcp.tools}):"missing");
@@ -29,7 +36,11 @@ export async function runTitanPreflight(){
   registered=await chrome.scripting.getRegisteredContentScripts({ids:["codex-webmcp","codex-webmcp-bridge"]}).catch(()=>[]);
  }catch{}
  add("WebMCP content scripts",webMcpAssets,"registered "+registered.length+"/2 (feature gate may be off)");
- const result={ok:checks.every(x=>x.ok),at:Date.now(),checks};window.__titanPreflight=result;window.dispatchEvent(new CustomEvent("titan:preflight",{detail:result}));return result;
+ const cap=api?.capabilities?.status?.();
+ add("Capability broker",!!api?.capabilities,cap?JSON.stringify({count:cap.count,healthy:cap.healthy,failing:cap.failing}):"missing");
+ const requiredCapabilities=["repo.search","codex.build","codex.orchestrate","runtime.verify"];
+ add("Execution capability readiness",requiredCapabilities.every(name=>api?.capabilities?.has?.(name)),requiredCapabilities.map(name=>name+":"+(api?.capabilities?.has?.(name)?"ready":"missing")).join(", "),false);
+ const result={ok:checks.filter(x=>x.required!==false).every(x=>x.ok),at:Date.now(),checks};window.__titanPreflight=result;window.dispatchEvent(new CustomEvent("titan:preflight",{detail:result}));return result;
 }
 window.runTitanPreflight=runTitanPreflight;
 setTimeout(()=>runTitanPreflight().catch(e=>{window.__titanPreflight={ok:false,at:Date.now(),checks:[{name:"preflight exception",ok:false,detail:String(e?.message||e)}]}}),1500);
