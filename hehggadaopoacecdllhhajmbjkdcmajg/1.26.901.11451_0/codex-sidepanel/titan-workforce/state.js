@@ -142,7 +142,7 @@ export function normalizeWorkforceState(raw={}){
  const orphanedAgentIds=Object.keys(rawAgents).filter(id=>!SLOT_IDS.includes(id));
  if(orphanedAgentIds.length)repairIssue(issues,"ORPHANED_AGENT_SLOTS",{slotIds:orphanedAgentIds},true);
 
- next.missions=normalizeMissionMap(source.missions??{},issues);
+ next.missions=normalizeMissionMap(source.missions,issues);
  const rawSquads=plain(source.squads)?source.squads:{};
  if(!plain(source.squads))repairIssue(issues,"MISSING_OR_MALFORMED_SQUADS",{},false);
  next.squads={
