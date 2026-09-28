@@ -6,11 +6,12 @@ function legacyServices(){
 }
 function normalizeCodex(codex){
  if(!codex)return null;
+ const request=typeof codex.request==="function"?codex.request.bind(codex):null;
  const review=typeof codex.review==="function"?codex.review.bind(codex):null;
  const build=typeof codex.build==="function"?codex.build.bind(codex):typeof codex.execute==="function"?codex.execute.bind(codex):null;
  const orchestrate=typeof codex.orchestrate==="function"?codex.orchestrate.bind(codex):review;
- if(!review&&!build&&!orchestrate)return null;
- return {source:codex.source||"native",capabilities:["review","build","orchestrate"].filter(k=>typeof ({review,build,orchestrate})[k]==="function"),review,build,orchestrate};
+ if(!request&&!review&&!build&&!orchestrate)return null;
+ return {source:codex.source||"native",capabilities:["request","review","build","orchestrate"].filter(k=>typeof ({request,review,build,orchestrate})[k]==="function"),request,review,build,orchestrate};
 }
 export function registerNativeService(services,kind,service,audit=()=>{}){
  if(!service)return false;
@@ -22,7 +23,7 @@ export function registerNativeService(services,kind,service,audit=()=>{}){
 }
 export function installLegacyNativeBridge(services,audit=()=>{}){
  const legacy=legacyServices();
- for(const kind of ["github","repository","runtime","codex"])registerNativeService(services,kind,legacy.get(kind),audit);
+ for(const kind of ["codex","git","github","repository","runtime","terminal","browser","server"])registerNativeService(services,kind,legacy.get(kind),audit);
  audit("native-services-bridged",{available:services.status()});
  return services.status();
 }
@@ -30,7 +31,7 @@ export function installStockNativeEventBridge(services,audit=()=>{},target=globa
  if(!target?.addEventListener)return ()=>{};
  const handler=e=>{
   const d=e?.detail||{},kind=d.kind||d.name,service=d.service;
-  if(!["codex","github","repository","runtime"].includes(kind)||!service)return;
+  if(!["codex","git","github","repository","runtime","terminal","browser","server"].includes(kind)||!service)return;
   registerNativeService(services,kind,service,audit);
  };
  target.addEventListener("titan:stock-native-service",handler);

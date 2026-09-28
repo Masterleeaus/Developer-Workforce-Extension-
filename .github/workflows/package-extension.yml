@@ -4,6 +4,8 @@ on:
   push:
     paths:
       - ".github/workflows/package-extension.yml"
+      - ".github/workflows/acceptance-certification.yml"
+      - "hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/**"
 permissions:
   contents: read
 jobs:
@@ -11,16 +13,48 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Run release acceptance certification
+        run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/tests/acceptance-certification.mjs
+      - name: Upload acceptance certificate
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: developer-workforce-release-certificate
+          path: artifacts/acceptance/
+          if-no-files-found: error
+      - name: Require release-eligible certificate
+        run: |
+          node - <<'NODE'
+          const fs=require("fs");
+          const p="artifacts/acceptance/certificate.json";
+          const c=JSON.parse(fs.readFileSync(p,"utf8"));
+          if(!c.releaseEligible){
+            console.error("Release blocked by acceptance certificate.");
+            console.error((c.notes||[]).join("\n"));
+            process.exit(1);
+          }
+          console.log("Acceptance certificate authorizes packaging.");
+          NODE
+      - name: Validate package integrity
+        run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/tests/package-integrity.test.js
       - name: Package extension
         run: |
           set -euo pipefail
           ROOT="hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0"
           test -f "$ROOT/manifest.json"
+          VERSION="$(node -p "JSON.parse(require('fs').readFileSync('$ROOT/manifest.json','utf8')).version")"
+          test -n "$VERSION"
           mkdir -p dist
-          (cd "$ROOT" && zip -qr "$GITHUB_WORKSPACE/dist/Developer-Workforce-Extension-v4.0.0.zip" .)
-          unzip -t dist/Developer-Workforce-Extension-v4.0.0.zip
+          ARTIFACT="Developer-Workforce-Extension-v${VERSION}.zip"
+          (cd "$ROOT" && zip -qr "$GITHUB_WORKSPACE/dist/$ARTIFACT" .)
+          unzip -t "dist/$ARTIFACT"
+          echo "ARTIFACT=$ARTIFACT" >> "$GITHUB_ENV"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
       - uses: actions/upload-artifact@v4
         with:
-          name: Developer-Workforce-Extension-v4.0.0
-          path: dist/Developer-Workforce-Extension-v4.0.0.zip
+          name: Developer-Workforce-Extension-v${{ env.VERSION }}
+          path: dist/${{ env.ARTIFACT }}
           if-no-files-found: error

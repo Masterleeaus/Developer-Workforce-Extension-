@@ -1,0 +1,13 @@
+import {createWorkforceState} from "./state.js";import {TitanGitMissionSubstrate} from "./git-mission-substrate.js";import {classifyCIFailure,recoveryPlan} from "./ci-failures.js";
+const assert=(x,m)=>{if(!x)throw new Error(m)};let now=1000;const state=createWorkforceState(),git=new TitanGitMissionSubstrate(state,{now:()=>now,leaseMs:100});
+let a=git.acquire({missionId:"m1",builderId:"BUILDER_A",branch:"agent/m1",worktree:"/wt/m1",scopePaths:["src"]});assert(a.builderId==="BUILDER_A","lease");
+let conflict=false;try{git.acquire({missionId:"m1",builderId:"BUILDER_B",branch:"agent/m1-b",worktree:"/wt/m1b"})}catch(e){conflict=e.code==="MISSION_GIT_LEASE_CONFLICT"}assert(conflict,"duplicate mission lease allowed");
+conflict=false;try{git.acquire({missionId:"m2",builderId:"BUILDER_B",branch:"agent/m1",worktree:"/wt/m2"})}catch(e){conflict=e.code==="GIT_RESOURCE_ALREADY_LEASED"}assert(conflict,"duplicate branch allowed");
+let dirty=false;try{git.assertClean("m1",{modified:["src/x.js"]})}catch(e){dirty=e.code==="DIRTY_WORKTREE"}assert(dirty,"dirty worktree admitted");
+let cleanup=false;try{git.release("m1",{reason:"stale"})}catch(e){cleanup=e.code==="DIRTY_WORKTREE_CLEANUP_BLOCKED"}assert(cleanup,"dirty worktree auto-cleaned");
+git.get("m1").dirty=false;git.markPullRequest("m1",{number:7,url:"pr",headSha:"abc"});git.markCI("m1",{status:"success",headSha:"abc"});
+let truth=false;try{git.assertGitHubTruthComplete("m1",{merged:false,ciStatus:"success",verified:true})}catch(e){truth=e.code==="GITHUB_MERGE_EVIDENCE_REQUIRED"}assert(truth,"completion without merge evidence");
+const done=git.assertGitHubTruthComplete("m1",{merged:true,mergeCommit:"deadbeef",ciStatus:"success",verified:true});assert(done.status==="merged","github truth completion");
+git.acquire({missionId:"m2",builderId:"BUILDER_B",branch:"agent/m2",worktree:"/wt/m2"});now=1200;assert(git.stale().some(x=>x.missionId==="m2"),"stale lease not found");
+assert(classifyCIFailure({message:"npm ci dependency resolution failed"})==="DEPENDENCY_FAILURE","dependency taxonomy");assert(classifyCIFailure({message:"upload-artifact package zip failed"})==="PACKAGING_FAILURE","packaging taxonomy");assert(classifyCIFailure({message:"GitHub Actions runner timed out"})==="FLAKY_INFRASTRUCTURE","infra taxonomy");const plan=recoveryPlan({message:"eslint lint failed",runId:1});assert(plan.executionClass==="codex_builder"&&plan.repairKind==="code","repair route");
+console.log("Git mission substrate and CI recovery PASS");

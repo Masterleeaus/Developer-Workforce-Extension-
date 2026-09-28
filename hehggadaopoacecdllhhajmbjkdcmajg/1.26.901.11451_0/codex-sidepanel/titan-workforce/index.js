@@ -19,4 +19,17 @@ export * from "./lifecycle.js";
 export * from "./controls.js";
 export * from "./cockpit.js";
 export * from "./stock-service-fallbacks.js";
-export * from "./extension-diagnostics.js";
+
+export * from "./capability-broker.js";
+export * from "./execution-capabilities.js";
+export * from "./mcp-registry.js";export * from "./approvals.js";
+export * from "./changed-path-evidence.js";
+export * from "./scoped-codex-capability.js";
+
+export * from "./runtime-verifiers.js";
+export * from "./credential-broker.js";
+export * from "./high-impact-policy.js";
+export * from "./maintenance.js";
+
+export * from "./cockpit-diagnostics.js";
+\nexport * from "./observability.js";\n\nexport * from "./conversation-lifecycle.js";\nexport * from "./git-mission-substrate.js";\n

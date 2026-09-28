@@ -17,6 +17,10 @@ jobs:
           node-version: "22"
       - name: Validate manifest
         run: node -e "JSON.parse(require('fs').readFileSync('hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/manifest.json','utf8')); console.log('manifest PASS')"
+      - name: Package and static reference integrity
+        run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/tests/package-integrity.test.js
+      - name: Runtime observability
+        run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/tests/titan-runtime-observability.test.js
       - name: WP1 profiles
         run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/tests/titan-agent-profiles.test.js
       - name: WP2 scheduler
@@ -27,10 +31,36 @@ jobs:
         run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/titan-work-codex-pipeline-selftest.js
       - name: WP4 core
         run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/core-selftest.mjs
+      - name: Live chat runtime handoff
+        run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/live-chat-runtime.test.mjs
+      - name: Background autonomous runtime ownership
+        run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/background-runtime.test.mjs
+      - name: Lifecycle maintenance and merge backpressure
+        run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/maintenance.test.mjs
+      - name: Repository intelligence and architecture index
+        run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/repository-intelligence.test.mjs
+      - name: Mission and context compiler
+        run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/mission-context-compiler.test.mjs
+      - name: Usage governor
+        run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/usage-governor.test.mjs
+      - name: Git mission substrate and CI recovery
+        run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/git-ci-hardening.test.mjs
+      - name: Workforce observability and replay
+        run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/observability.test.mjs
+      - name: Conversation lifecycle
+        run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/conversation-lifecycle.test.mjs
+      - name: 15-agent cockpit hierarchy
+        run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/cockpit-hierarchy.test.mjs
+      - name: WP4 control-state safety
+        run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/control-selftest.mjs
       - name: Stock native bridge and fallback services
         run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/stock-service-fallbacks.test.mjs
-      - name: Extension diagnostics
-        run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/extension-diagnostics.test.mjs
+      - name: MCP registry and WebMCP bridge
+        run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/mcp-registry.test.mjs
+      - name: Native execution capability broker
+        run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/execution-capabilities.test.mjs
+      - name: Scoped Codex capability enforcement
+        run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/scoped-codex-capability.test.mjs
       - name: Validate side-panel references
         run: |
           python - <<'PY'

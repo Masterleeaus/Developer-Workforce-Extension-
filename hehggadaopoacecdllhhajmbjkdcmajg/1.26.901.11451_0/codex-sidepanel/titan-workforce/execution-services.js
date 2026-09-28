@@ -1,4 +1,4 @@
-export const SERVICE_KINDS=Object.freeze(["chat","work","codex","github","repository","runtime","terminal"]);
+export const SERVICE_KINDS=Object.freeze(["chat","work","codex","git","github","repository","runtime","terminal","browser","server","mcp"]);
 export class TitanExecutionServices{
  constructor(){this.services=new Map()}
  register(kind,service){

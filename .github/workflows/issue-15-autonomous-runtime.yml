@@ -1,0 +1,36 @@
+name: Issue 15 Autonomous Runtime Loop
+
+on:
+  push:
+    branches:
+      - agent-1/issue-15-autonomous-runtime-loop
+  pull_request:
+    paths:
+      - "hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/**"
+      - "hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/titan-workforce/**"
+      - "hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/titan-work-codex-pipeline.js"
+      - ".github/workflows/issue-15-autonomous-runtime.yml"
+
+jobs:
+  node-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Autonomous runtime loop
+        run: node codex-sidepanel/titan-workforce/autonomous-runtime-loop.test.mjs
+      - name: Live chat runtime regression
+        run: node codex-sidepanel/titan-workforce/live-chat-runtime.test.mjs
+      - name: Background runtime regression
+        run: node codex-sidepanel/titan-workforce/background-runtime.test.mjs
+      - name: WP2 scheduler regression
+        run: node titan-workforce/chat-five-pass-scheduler.test.js
+      - name: WP2 integration regression
+        run: node titan-workforce/chat-five-pass-integration.test.js
+      - name: WP3 pipeline regression
+        run: node titan-work-codex-pipeline-selftest.js

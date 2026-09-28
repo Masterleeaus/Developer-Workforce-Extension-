@@ -131,6 +131,14 @@
   });
   ok(delta.source_cycle_reviews.length === 1, "delta must preserve CycleReview provenance");
 
+  const narrowedPacket=api.createCodexImplementationPacket(delta,{scope_paths:["src/pipeline/nested"]});
+  ok(narrowedPacket.scope_paths[0]==="src/pipeline/nested","packet may narrow to descendant scope");
+  ok(api.scopeAllowsPath("src/pipeline","src/pipeline/index.js"),"plain scope subtree");
+  ok(api.scopeAllowsPath("src/**","src/deep/nested/file.js"),"double glob nested");
+  ok(api.scopeAllowsPath("tests/*.js","tests/a.js"),"single glob");
+  ok(!api.scopeAllowsPath("tests/*.js","tests/deep/a.js"),"single glob crossed segment");
+  ok(api.scopeAllowsPath("src\\windows","src\\windows\\file.js"),"Windows separator normalization");
+  ok(!api.scopeAllowsPath("src/pipeline","src/pipelines/file.js"),"sibling prefix escape");
   expectThrow(() => api.compileApprovedImplementationDelta({
     mission: mission(),
     cycle_reviews: [continue5],
@@ -142,6 +150,7 @@
     "builder-b": { workload: 0, repository: "example/repo" }
   });
   ok(packet.builder_slot === "builder-b", "least-loaded compatible builder should be selected");
+  expectThrow(()=>api.createBuilderResult({packet:Object.assign({},packet,{builder_slot:"builder-a"}),files_changed:["src/pipeline/../outside.js"]}),"builder traversal path must fail closed");
 
   const conflictPacket = api.createCodexImplementationPacket(delta, { builder_slot: "builder-a" });
   const chosen = api.chooseBuilder(conflictPacket, {
