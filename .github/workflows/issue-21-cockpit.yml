@@ -1,0 +1,30 @@
+name: Issue 21 Engineering Cockpit
+
+on:
+  push:
+    branches:
+      - agent-1/issue-21-cockpit-diagnostics
+  pull_request:
+    paths:
+      - "hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/**"
+      - ".github/workflows/issue-21-cockpit.yml"
+
+jobs:
+  cockpit:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Cockpit diagnostics and control contracts
+        run: node cockpit-diagnostics.test.mjs
+      - name: Background runtime regression
+        run: node background-runtime.test.mjs
+      - name: Control-state regression
+        run: node control-selftest.mjs
+      - name: Live Chat runtime regression
+        run: node live-chat-runtime.test.mjs
