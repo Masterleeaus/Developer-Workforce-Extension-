@@ -26,7 +26,7 @@ export function createAgentSlot(id){
  return {id,executionClass:SLOT_CLASS[id],squad:SLOT_SQUAD[id]||null,status:"idle",missionId:null,profileIds:[],conversation:null,health:"unknown",control:createAgentControlState(),createdAt:now(),updatedAt:now()};
 }
 export function createWorkforceState(){
- return {schemaVersion:WORKFORCE_SCHEMA_VERSION,agents:Object.fromEntries(SLOT_IDS.map(id=>[id,createAgentSlot(id)])),missions:{},squads:{A:{status:"idle"},B:{status:"idle"}},controls:{armed:false,emergencyStop:false,emergencyReason:null},provenance:{},createdAt:now(),updatedAt:now()};
+ return {schemaVersion:WORKFORCE_SCHEMA_VERSION,agents:Object.fromEntries(SLOT_IDS.map(id=>[id,createAgentSlot(id)])),missions:{},squads:{A:{status:"idle"},B:{status:"idle"}},controls:{armed:false,emergencyStop:false,emergencyReason:null,preflightPassed:false,preflightAt:null},provenance:{},createdAt:now(),updatedAt:now()};
 }
 
 function rawRecoverySnapshot(raw){
