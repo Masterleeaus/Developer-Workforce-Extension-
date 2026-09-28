@@ -82,6 +82,72 @@ assert(m.agents.A1.conversation.legacyTabId===11,"legacy tab not migrated");
 assert(m.agents.A1.missionId==="m1","legacy mission not migrated");
 assert(m.legacy.auditLog.length===1,"legacy audit lost");
 
+const hardenedLegacy={
+ enabled:true,
+ armed:true,
+ emergencyStop:false,
+ workerTabs:[101,102,103,104,105],
+ counts:[5,10,15,20,25],
+ lastSeen:[1001,1002,1003,1004,1005],
+ missions:[
+  {id:"legacy-active",title:"Active legacy mission",status:"working",acceptance:[{id:"a1",text:"works",done:false}]},
+  null,null,null,null
+ ],
+ workerHealth:[{status:"ready"},{status:"busy"},null,null,null],
+ reviewQueue:[{key:"rq-1",worker:0}],
+ activeReview:{key:"active-review",worker:0},
+ reviewHistory:[{key:"rh-1"}],
+ reviewAttempts:{"rq-1":2},
+ ownershipLeases:[{resource:"src/a.js",worker:0,claimedAt:10,expiresAt:999999}],
+ missionQueue:[{id:"queued-legacy",title:"Queued legacy",dependsOn:["legacy-active"]}],
+ missionHistory:[{id:"history-legacy",title:"Historical legacy",status:"verified",assignedAgent:"W2"}],
+ dispatch:{minGapMs:1500,maxConcurrent:3,lastSendAt:500,pending:[{worker:1,kind:"next"}]},
+ checkpoints:[{missionId:"legacy-active",pass:5,status:"working"},null,null,null,null],
+ convergence:{round:3,lastCheckpointPasses:[5,5,5,5,5],history:[{round:2}]},
+ auditLog:[{type:"legacy-audit",at:1}],
+ recovery:{lastShutdownAt:10,lastStartupAt:20,unclean:true,reconciled:false},
+ workerIdentity:[{origin:"https://chatgpt.com",conversationId:"abc",key:"https://chatgpt.com/c/abc",tabId:101,boundAt:5},null,null,null,null],
+ sendLedger:[{key:"legacy-send-1",at:2}],
+ approvals:[{id:"legacy-approval-1",type:"scope-expansion",approved:true}],
+ reviewScheduler:{cursor:2,lastGrantedAt:[5,10,15,20,25]},
+ utilization:{target:3,min:2,max:5,lastAdjustedAt:44,reason:"pressure",lastAdvanceAt:[1,2,3,4,5],grants:9}
+};
+const hardenedMigrated=migrateLegacy5x5(hardenedLegacy);
+assert(hardenedMigrated.controls.armed===false,"legacy migration must always force v4 disarmed");
+assert(hardenedMigrated.recovery.migration.needsReconciliation===true,"legacy migration must require reconciliation before re-arm");
+assert(hardenedMigrated.recovery.migration.legacyWasArmed===true,"legacy armed state should be retained as evidence, not restored");
+assert(hardenedMigrated.agents.A1.conversation.key==="https://chatgpt.com/c/abc","worker identity must map to A1 conversation");
+assert(hardenedMigrated.agents.A1.conversation.legacyTabId===101,"legacy tab id must be retained with mapped identity");
+assert(hardenedMigrated.agents.A1.checkpoint.pass===5,"legacy checkpoint must map to A1");
+assert(hardenedMigrated.agents.A1.legacyRuntime.passCount===5&&hardenedMigrated.agents.A1.legacyRuntime.lastSeen===1001,"legacy pass/last-seen state must map to A1 runtime evidence");
+assert(hardenedMigrated.agents.A1.control.paused===true&&hardenedMigrated.agents.A1.control.pauseReason==="legacy-migration-reconciliation","migrated active worker must remain paused pending reconciliation");
+assert(hardenedMigrated.missions["legacy-active"].assignedAgent==="A1","active legacy mission must map to canonical A1 assignment");
+assert(hardenedMigrated.missions["queued-legacy"].assignedAgent===null,"queued legacy mission must not keep stale assignment");
+assert(hardenedMigrated.missions["history-legacy"].assignedAgent===null,"historical legacy mission must clear stale W-slot assignment");
+assert(hardenedMigrated.legacy.compatibility.review.active.key==="active-review","active review must be retained");
+assert(hardenedMigrated.legacy.compatibility.review.history.length===1,"review history must be retained");
+assert(hardenedMigrated.legacy.compatibility.review.attempts["rq-1"]===2,"review attempts must be retained");
+assert(hardenedMigrated.legacy.compatibility.ownershipLeases[0].agentId==="A1","legacy ownership lease worker must map to canonical A1");
+assert(hardenedMigrated.legacy.compatibility.approvals[0].migrationId==="legacy-approval-1","legacy approval must be retained");
+assert(hardenedMigrated.legacy.compatibility.dispatch.maxConcurrent===3,"legacy dispatch/backpressure state must be retained");
+assert(hardenedMigrated.legacy.compatibility.convergence.round===3,"legacy convergence state must be retained");
+assert(hardenedMigrated.legacy.compatibility.recovery.unclean===true,"legacy recovery state must be retained");
+assert(hardenedMigrated.legacy.compatibility.reviewScheduler.cursor===2,"legacy review scheduler must be retained");
+assert(hardenedMigrated.legacy.compatibility.utilization.target===3,"legacy utilization state must be retained");
+assert(hardenedMigrated.legacy.compatibility.sendLedger[0].key==="legacy-send-1","legacy send ledger must be retained");
+assert(hardenedMigrated.legacy.compatibility.auditLog[0].type==="legacy-audit","legacy audit log must be retained");
+assert(hardenedMigrated.legacy.rawState.approvals[0].id==="legacy-approval-1","complete raw legacy snapshot must be retained");
+assert(hardenedMigrated.legacy.rawState.workerIdentity[0].conversationId==="abc","raw worker identity must survive archive");
+assert(hardenedMigrated.legacy.reviewQueue.length===1&&hardenedMigrated.legacy.sendLedger.length===1,"legacy compatibility accessors must remain available");
+assert(validateWorkforceStateDetailed(hardenedMigrated).ok,"lossless legacy migration must produce valid canonical v4 state");
+
+const remigrated=migrateWorkforceState(hardenedMigrated);
+assert(remigrated.legacy.migrationVersion===2,"current-schema re-load must not re-run legacy migration");
+assert(remigrated.legacy.compatibility.ownershipLeases.length===1,"idempotent migration must not duplicate ownership leases");
+assert(remigrated.legacy.compatibility.approvals.length===1,"idempotent migration must not duplicate approvals");
+assert(remigrated.legacy.rawState.sendLedger.length===1,"idempotent migration must preserve original raw snapshot");
+
+
 import {normalizeMissionContract} from "./mission-contract.js";
 import {verifyDiffScope} from "./scope-locks.js";
 import {TitanProvenanceGraph,createProvenanceNode} from "./provenance.js";
