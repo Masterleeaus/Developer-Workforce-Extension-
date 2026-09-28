@@ -118,6 +118,7 @@ let corruptReplayBlocked=false;try{corruptGraph.ancestry("ca")}catch(e){corruptR
 import {TitanExecutionServices} from "./execution-services.js";
 import {agentSummaryText} from "./cockpit.js";
 import {readFileSync} from "node:fs";
+import {createRequire} from "node:module";
 import {TitanWorkforceController,validateAssignmentInvariants} from "./controller.js";
 import {TitanWorkforceControls} from "./controls.js";
 import {TitanWorkforceIntegration} from "./integration.js";
@@ -127,6 +128,68 @@ import {classifyCIFailure,recoveryRoute} from "./ci-failures.js";
 import {createVerificationState,recordGate,verificationDecision} from "./verification-plane.js";
 import {importLegacyVerification,evaluateBooleanEvidence} from "./verification-adapter.js";
 const services=new TitanExecutionServices();services.register("github",{capabilities:["truth"]});assert(services.available("github"),"service registry");
+
+const requireForProfiles=createRequire(import.meta.url);
+const realProfileApi=requireForProfiles("../titan-agent-profiles.js");
+const profileState=createWorkforceState();
+const profileAudit=[];
+const profileCalls=[];
+const profileMissions=new TitanMissionControl(profileState);
+const profileMission=profileMissions.upsert({
+ id:"profile-mission",
+ title:"Architecture boundary refactor",
+ goal:"Preserve architecture invariants and verification boundaries",
+ repository:"example/repo",
+ acceptance:["specialist context reaches every execution class"]
+});
+const profileServices=new TitanExecutionServices();
+profileServices.register("chat",{send:async x=>{profileCalls.push({kind:"chat",...x});return {ok:true}}});
+profileServices.register("work",{review:async x=>{profileCalls.push({kind:"work",...x});return {ok:true}}});
+profileServices.register("codex",{
+ capabilities:["build","orchestrate"],
+ build:async x=>{profileCalls.push({kind:"build",...x});return {ok:true}},
+ orchestrate:async x=>{profileCalls.push({kind:"orchestrate",...x});return {ok:true}}
+});
+const profileController=new TitanWorkforceController(profileState,{missionControl:profileMissions,services:profileServices,audit:(type,data)=>profileAudit.push({type,data})});
+const profileIntegration=new TitanWorkforceIntegration({state:profileState,controller:profileController,missionControl:profileMissions,services:profileServices,audit:(type,data)=>profileAudit.push({type,data})});
+profileIntegration.profileApi=realProfileApi;
+
+const profileCast=profileIntegration.castMission("profile-mission","A1");
+assert(profileCast.compiled.profileIds.length>0,"profile cast must select at least one profile");
+assert(profileController.registry.get("A1").profileIds.length===profileCast.compiled.profileIds.length,"selected profile IDs must persist on assigned slot");
+assert(!Object.prototype.hasOwnProperty.call(profileController.registry.get("A1"),"profileContext"),"compiled profile definitions/text must not be persisted in slot state");
+
+await profileIntegration.dispatchChatPass("A1",{instruction:"Inspect the boundary",key:"profile/chat/1"});
+await profileIntegration.requestWorkReviewForPipelineSlot("supervisor-a",{mission:profileMission,review_id:"profile-review"});
+await profileIntegration.dispatchCodexPacket("builder-a",{builder_slot:"builder-a",mission:profileMission,packet_id:"profile-build"});
+await profileIntegration.orchestrate({mission:profileMission,builder_results:[]});
+
+const chatProfileCall=profileCalls.find(x=>x.kind==="chat");
+assert(chatProfileCall.instruction.includes("TITAN AGENT PROFILE CONTEXT"),"Chat instruction must include compiled WP1 profile context");
+assert(chatProfileCall.instruction.includes("Execution class: chat_worker"),"Chat profile context must match chat execution class");
+assert(Array.isArray(chatProfileCall.profileIds)&&chatProfileCall.profileIds.length>0,"Chat dispatch must preserve selected profile IDs");
+
+const workProfileCall=profileCalls.find(x=>x.kind==="work");
+assert(workProfileCall.payload?.profile_context?.text?.includes("TITAN AGENT PROFILE CONTEXT"),"Work review payload must include compiled profile context");
+assert(workProfileCall.payload.profile_context.execution_class==="work_supervisor","Work profile context must match supervisor execution class");
+assert(workProfileCall.profileIds.length>0,"Work audit/envelope profile IDs must be present");
+
+const builderProfileCall=profileCalls.find(x=>x.kind==="build");
+assert(builderProfileCall.packet?.profile_context?.text?.includes("TITAN AGENT PROFILE CONTEXT"),"Builder packet must include compiled profile context");
+assert(builderProfileCall.packet.profile_context.execution_class==="codex_builder","Builder profile context must match builder execution class");
+assert(builderProfileCall.profileIds.length>0,"Builder profile IDs must be preserved");
+
+const orchestratorProfileCall=profileCalls.find(x=>x.kind==="orchestrate");
+assert(orchestratorProfileCall.bundle?.profile_context?.text?.includes("TITAN AGENT PROFILE CONTEXT"),"Orchestrator bundle must include compiled profile context");
+assert(orchestratorProfileCall.bundle.profile_context.execution_class==="codex_orchestrator","Orchestrator profile context must match orchestrator execution class");
+assert(orchestratorProfileCall.profileIds.length>0,"Orchestrator profile IDs must be preserved");
+
+assert(profileAudit.filter(x=>x.type==="profile-context-compiled").length>=4,"profile selection/context compilation must be auditable");
+profileController.registry.get("A2").profileIds=["directadmin"];
+let incompatibleProfileBlocked=false;
+try{profileIntegration.compileProfileForSlot("A2",{mission:profileMission})}catch(e){incompatibleProfileBlocked=e.code==="PROFILE_EXECUTION_CLASS_MISMATCH"}
+assert(incompatibleProfileBlocked,"stored profile incompatible with execution class must fail closed");
+
 
 const hostileMissionId='<img src=x onerror="globalThis.__cockpitPwned=true">';
 const hostileSummary=agentSummaryText({executionClass:"chat_worker",status:"assigned",missionId:hostileMissionId});
