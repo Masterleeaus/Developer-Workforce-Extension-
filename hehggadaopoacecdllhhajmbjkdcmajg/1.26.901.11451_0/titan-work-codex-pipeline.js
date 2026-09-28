@@ -385,7 +385,7 @@
     };
     assert(BUILDER_SLOTS.includes(result.builder_slot), "invalid builder slot");
     if (packet) {
-      assert(result.files_changed.every(path => packet.scope_paths.some(scope => path === scope || path.startsWith(scope.replace(/\/$/, "") + "/"))), "builder changed file outside packet scope");
+      assert(result.files_changed.every(path => packet.scope_paths.some(scope => scopeAllowsPath(path,scope))), "builder changed file outside packet scope");
       result.provenance.push(provenanceRef("codex-packet", packet));
     }
     audit("codex.builder.result", result);
