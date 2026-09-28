@@ -1,5 +1,5 @@
 import {CHAT_SLOTS,SUPERVISOR_SLOTS,BUILDER_SLOTS,ORCHESTRATOR_SLOTS,SLOT_IDS,SLOT_CLASS} from "./constants.js";
-import {createWorkforceState,validateWorkforceState} from "./state.js";
+import {createWorkforceState,validateWorkforceState,normalizeWorkforceState,validateWorkforceStateDetailed} from "./state.js";
 import {migrateLegacy5x5} from "./migrations.js";
 
 function assert(x,m){if(!x)throw new Error(m)}
