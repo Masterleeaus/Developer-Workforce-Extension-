@@ -23,11 +23,11 @@ function legacyIdentity(identity,tabId){
  return out;
 }
 
-function legacyMission(mission,{assignedAgent=null,status=null,source="legacy"}={}){
+function legacyMission(mission,{assignedAgent=undefined,status=null,source="legacy"}={}){
  if(!plain(mission)||!mission.id)return null;
  const m=clone(mission);
  m.id=String(m.id);
- if(assignedAgent)m.assignedAgent=assignedAgent;
+ if(assignedAgent!==undefined)m.assignedAgent=assignedAgent;
  else if(!Object.prototype.hasOwnProperty.call(m,"assignedAgent"))m.assignedAgent=null;
  if(status&&!m.status)m.status=status;
  if(!m.status)m.status="queued";
