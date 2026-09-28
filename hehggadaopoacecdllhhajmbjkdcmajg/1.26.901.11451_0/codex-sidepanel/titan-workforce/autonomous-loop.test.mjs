@@ -12,13 +12,14 @@ class FakeScheduler{
  block(id,r){this.workers[id].state="BLOCKED";this.workers[id].blockReason=r}
 }
 globalThis.TitanChatFivePass={ChatFivePassScheduler:FakeScheduler};
+globalThis.TitanAgentProfiles={selectProfilesForMission:()=>({profileIds:["supervisor"]}),compileProfileContext:()=>({profileIds:["supervisor"],text:"supervisor context"}),getProfile:()=>({allowedCapabilities:[]})};
 globalThis.TitanWorkCodexPipeline={
  createCycleReview:x=>({...x,review_id:"review-"+x.next_decision,cycle:x.cycle||1,passes_completed:x.passes_completed||5,approved_findings:x.approved_findings||[],dependencies:x.dependencies||[],next_decision:x.next_decision}),
  nextResearchEpoch:r=>r.next_decision==="CONTINUE_5"?{action:"research",target_passes:r.passes_completed+5}:r.next_decision==="READY_FOR_CODEX"?{action:"compile-delta"}:r.next_decision==="REDIRECT"?{action:"redirect",redirect:r.redirect||{}}:{action:"mission-control-attention",blocker:r.blocker||{}},
  compileApprovedImplementationDelta:x=>({delta_id:"delta-1",mission:x.mission,source_cycle_reviews:x.cycle_reviews,scope_paths:x.scope_paths})
 };
 const state=createWorkforceState(),missions=new TitanMissionControl(state),services=new TitanExecutionServices(),controller=new TitanWorkforceController(state,{services});
-missions.upsert({id:"m1",title:"Mission",scope_paths:["src"],acceptance:["ok"]});controller.registry.get("A1").conversation={key:"conv",tabId:1};
+missions.upsert({id:"m1",title:"Mission",scope_paths:["src"],acceptance:["ok"]});controller.registry.get("A1").conversation={key:"conv",tabId:1};controller.registry.get("SUPERVISOR_A").conversation={key:"sup",tabId:2};
 services.register("chat",{observe:async()=>({assistantCount:0,generating:false}),assertConversation:async()=>true,send:async()=>({ok:true})});
 let decision="CONTINUE_5";services.register("work",{review:async()=>({next_decision:decision,approved_findings:["finding"],next_queue:["n1","n2","n3","n4","n5"]})});
 const integration=new TitanWorkforceIntegration({state,controller,missionControl:missions,services});integration.bindGlobals();
