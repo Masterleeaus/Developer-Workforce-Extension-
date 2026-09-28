@@ -83,7 +83,9 @@ export class TitanRuntimeOwner{
    lifecycle:clone(state.lifecycle||null),
    mergePressure:api.mergeController?.state||null,
    readiness:clone(api.integration?.readiness?.()||null),
-   diagnostics:clone(api.diagnostics?.()||null)
+   diagnostics:clone(api.diagnostics?.()||null),
+   conversationLifecycle:clone(api.conversationLifecycle?.status?.()||null),
+   metrics:clone(api.metrics?.()||null)
   };
  }
  async command(action,payload={}){
@@ -104,6 +106,8 @@ export class TitanRuntimeOwner{
    }
    case "bindAgentConversation": result=await api.bindAgentConversation(payload.id||payload.workerId,payload.conversation||payload.tabId);break;
    case "bindConversation": result=await api.liveChat.bindConversation(payload.workerId,payload.conversation);break;
+   case "conversationLifecycleStatus": result=api.conversationLifecycle?.status?.(payload.id||null)||null;break;
+   case "rotateConversation": result=await api.conversationLifecycle.rotate(payload.id,{newConversation:payload.conversation||null,createIfMissing:payload.createIfMissing!==false,active:payload.active===true});break;
    case "startCycle": result=await api.liveChat.startCycle(payload.workerId,payload.contract||payload);break;
    case "submitCycleReview": result=await api.liveChat.submitCycleReview(payload);break;
    case "tick": result=await this.tick("command");break;
