@@ -10,15 +10,19 @@ function ensureRuntimeState(state){
  state.chatScheduler=state.chatScheduler||null;
  state.chatRuntime=state.chatRuntime&&typeof state.chatRuntime==="object"
    ?state.chatRuntime
-   :{observations:{},lastTickAt:null,errors:[]};
+   :{observations:{},lastTickAt:null,errors:[],pendingReviews:{},cycleReviews:{},approvedDeltas:{},redirects:{}};
  state.chatRuntime.observations=state.chatRuntime.observations||{};
+ state.chatRuntime.pendingReviews=state.chatRuntime.pendingReviews||{};
+ state.chatRuntime.cycleReviews=state.chatRuntime.cycleReviews||{};
+ state.chatRuntime.approvedDeltas=state.chatRuntime.approvedDeltas||{};
+ state.chatRuntime.redirects=state.chatRuntime.redirects||{};
  state.chatRuntime.errors=Array.isArray(state.chatRuntime.errors)?state.chatRuntime.errors:[];
  state.sendLedger=Array.isArray(state.sendLedger)?state.sendLedger:[];
  return state;
 }
 
 export class TitanLiveChatRuntime{
- constructor({state,integration,missionControl,services,usageGovernor=null,audit=()=>{},save=async()=>{},pollMs=6000}={}){
+ constructor({state,integration,missionControl,services,usageGovernor=null,audit=()=>{},save=async()=>{},pollMs=6000,eventTarget=globalThis}={}){
   if(!state||!integration||!missionControl||!services)throw new Error("Live Chat runtime dependencies are required");
   this.state=ensureRuntimeState(state);
   this.integration=integration;
@@ -27,6 +31,7 @@ export class TitanLiveChatRuntime{
   this.usageGovernor=usageGovernor;
   this.audit=audit;
   this.save=save;
+  this.eventTarget=eventTarget;
   this.pollMs=Math.max(1000,Number(pollMs||6000));
   this.timer=null;
   this.ticking=false;
@@ -247,6 +252,22 @@ export class TitanLiveChatRuntime{
    request.profile_context=cast.compiled.text;
   }
 
+  const pendingId=request.review_id||request.reviewId||[event.missionId,event.cycleId,event.workerId,"review"].join(":");
+  this.state.chatRuntime.pendingReviews[pendingId]={
+   id:pendingId,
+   workerId:event.workerId,
+   supervisorId,
+   missionId:event.missionId,
+   cycleId:event.cycleId,
+   request:clone(request),
+   event:clone(event),
+   status:"dispatching",
+   createdAt:Date.now(),
+   updatedAt:Date.now()
+  };
+  this.persistSnapshot();
+  await this.save();
+
   const result=await this.integration.requestWorkReview(squad,request);
   this.usageGovernor?.record?.("work_cycle",{missionId:event.missionId});
   this.audit("supervisor-review-requested",{
@@ -254,11 +275,177 @@ export class TitanLiveChatRuntime{
    supervisorId,
    missionId:event.missionId,
    cycleId:event.cycleId,
+   reviewId:pendingId,
    profiles:supervisor.profileIds||[]
   });
+
+  const pending=this.state.chatRuntime.pendingReviews[pendingId];
+  if(pending){
+   pending.status="awaiting-result";
+   pending.updatedAt=Date.now();
+   pending.dispatchResult=clone(result);
+  }
+  const structured=this.extractCycleReview(result);
+  if(structured){
+   const consumed=await this.consumeCycleReview(result,{event,workerId:event.workerId,pendingId});
+   return {reviewResult:result,consumed};
+  }
   this.persistSnapshot();
   await this.save();
   return result;
+ }
+
+ extractCycleReview(value){
+  const pipeline=this.integration.pipelineApi||globalThis.TitanWorkCodexPipeline;
+  if(!value)return null;
+  const candidates=[value,value.cycleReview,value.cycle_review,value.review,value.parsed,value.result];
+  for(const candidate of candidates){
+   if(!candidate)continue;
+   let raw=candidate;
+   if(typeof raw==="string"){
+    const text=raw.trim();
+    try{raw=JSON.parse(text)}catch{
+     const fenced=text.match(/\x60\x60\x60(?:json)?\s*([\s\S]*?)\x60\x60\x60/i);
+     if(fenced)try{raw=JSON.parse(fenced[1].trim())}catch{continue}
+     else continue;
+    }
+   }
+   if(raw&&typeof raw==="object"&&(raw.next_decision||raw.nextDecision)){
+    if(raw.schema_version===1&&raw.review_id&&raw.mission)return clone(raw);
+    if(!pipeline?.createCycleReview)return clone(raw);
+    try{return pipeline.createCycleReview(raw)}catch{return clone(raw)}
+   }
+  }
+  return null;
+ }
+
+ reviewQueueFrom(raw){
+  const q=raw?.next_queue||raw?.nextQueue||raw?.next_instructions||raw?.nextInstructions||raw?.instructions||raw?.queue||null;
+  return Array.isArray(q)&&q.length===5&&q.every(x=>typeof x==="string"&&x.trim())?q.map(String):null;
+ }
+
+ nextCycleId(workerId,missionId){
+  const worker=this.scheduler.getWorker(workerId),current=String(worker?.cycleId||"cycle-0");
+  const m=current.match(/^(.*?)(\d+)$/);
+  if(m)return m[1]+String(Number(m[2])+1);
+  return missionId+":cycle:"+Date.now();
+ }
+
+ emit(type,detail){
+  try{
+   if(typeof this.eventTarget?.dispatchEvent==="function"&&typeof CustomEvent==="function"){
+    this.eventTarget.dispatchEvent(new CustomEvent(type,{detail:clone(detail)}));
+   }
+  }catch{}
+ }
+
+ async consumeCycleReview(raw,{event=null,workerId=null,pendingId=null}={}){
+  const pipeline=this.integration.pipelineApi||globalThis.TitanWorkCodexPipeline;
+  if(!pipeline?.createCycleReview||!pipeline?.nextResearchEpoch)throw new Error("WP3 CycleReview API unavailable");
+  const source=this.extractCycleReview(raw)||raw;
+  const missionId=source?.mission?.id||source?.mission_id||event?.missionId||this.scheduler.getWorker(workerId||event?.workerId)?.missionId;
+  if(!missionId)throw new Error("CycleReview mission id is required");
+  const mission=this.missionControl.get(missionId);
+  if(!mission)throw new Error("Unknown mission "+missionId);
+  const targetWorker=workerId||source.worker||event?.workerId;
+  if(!targetWorker)throw new Error("CycleReview worker is required");
+  const squad=this.integration.squadForWorker(targetWorker);
+  const completed=Number(source.passes_completed||source.passesCompleted||5);
+  const normalized=source.schema_version===1&&source.review_id
+   ?clone(source)
+   :pipeline.createCycleReview({
+     ...source,
+     mission:this.integration.normalizePipelineMission(mission),
+     worker:targetWorker,
+     squad:squad||source.squad,
+     cycle:Number(source.cycle||1),
+     passes_completed:completed
+    });
+  const route=pipeline.nextResearchEpoch(normalized);
+  const list=this.state.chatRuntime.cycleReviews[missionId]||(this.state.chatRuntime.cycleReviews[missionId]=[]);
+  if(!list.some(x=>x.review_id===normalized.review_id))list.push(clone(normalized));
+  this.state.chatRuntime.cycleReviews[missionId]=list.slice(-10);
+  if(pendingId&&this.state.chatRuntime.pendingReviews[pendingId]){
+   this.state.chatRuntime.pendingReviews[pendingId].status="consumed";
+   this.state.chatRuntime.pendingReviews[pendingId].reviewId=normalized.review_id;
+   this.state.chatRuntime.pendingReviews[pendingId].updatedAt=Date.now();
+  }
+  const supervisorId=squad==="A"?"SUPERVISOR_A":"SUPERVISOR_B";
+  const supervisor=this.integration.controller.registry.get(supervisorId);
+  if(supervisor){supervisor.status="ready";supervisor.updatedAt=Date.now()}
+
+  if(route.action==="research"){
+   const queue=this.reviewQueueFrom(raw);
+   if(!queue){
+    this.missionControl.transition(missionId,"blocked","CONTINUE_5 review did not provide a five-instruction queue");
+    this.audit("cycle-review-blocked",{missionId,workerId:targetWorker,reviewId:normalized.review_id,reason:"NEXT_QUEUE_REQUIRED"});
+    this.persistSnapshot();await this.save();
+    return {action:"blocked",reason:"NEXT_QUEUE_REQUIRED",review:normalized};
+   }
+   const nextCycleId=this.nextCycleId(targetWorker,missionId);
+   await this.startCycle(targetWorker,{missionId,cycleId:nextCycleId,queue});
+   this.missionControl.transition(missionId,"research","Supervisor requested next five-pass cycle");
+   this.audit("cycle-review-continue",{missionId,workerId:targetWorker,reviewId:normalized.review_id,nextCycleId});
+   this.emit("titan-workforce:chat-cycle-continued",{missionId,workerId:targetWorker,review:normalized,nextCycleId});
+   return {action:"continue-5",review:normalized,nextCycleId};
+  }
+
+  if(route.action==="compile-delta"){
+   const scopePaths=raw?.scope_paths||raw?.scopePaths||mission.scopePaths||[];
+   if(!Array.isArray(scopePaths)||!scopePaths.length){
+    this.missionControl.transition(missionId,"blocked","READY_FOR_CODEX review has no bounded scope");
+    this.persistSnapshot();await this.save();
+    return {action:"blocked",reason:"DELTA_SCOPE_REQUIRED",review:normalized};
+   }
+   const delta=pipeline.compileApprovedImplementationDelta({
+    mission:this.integration.normalizePipelineMission(mission),
+    cycle_reviews:[normalized],
+    validated_findings:normalized.approved_findings||[],
+    required_changes:raw?.required_changes||raw?.requiredChanges||normalized.approved_findings||[],
+    scope_paths:scopePaths,
+    expected_files:raw?.expected_files||raw?.expectedFiles||[],
+    expected_symbols:raw?.expected_symbols||raw?.expectedSymbols||[],
+    dependencies:normalized.dependencies||[],
+    tests:mission.testPlan||[],
+    acceptance_criteria:mission.acceptanceCriteria||[],
+    runtime_verification:mission.runtimeRequirements||mission.verificationRequirements||[]
+   });
+   this.state.chatRuntime.approvedDeltas[missionId]=clone(delta);
+   this.missionControl.transition(missionId,"ready-for-codex","Supervisor approved implementation delta");
+   this.audit("cycle-review-ready-for-codex",{missionId,workerId:targetWorker,reviewId:normalized.review_id,deltaId:delta.delta_id});
+   this.emit("titan-workforce:approved-delta",{missionId,workerId:targetWorker,review:normalized,delta});
+   this.persistSnapshot();await this.save();
+   return {action:"ready-for-codex",review:normalized,delta};
+  }
+
+  if(route.action==="redirect"){
+   const redirect=clone(route.redirect||{});
+   this.state.chatRuntime.redirects[missionId]={reviewId:normalized.review_id,redirect,at:Date.now()};
+   this.missionControl.transition(missionId,"redirected","Supervisor redirected research");
+   this.audit("cycle-review-redirect",{missionId,workerId:targetWorker,reviewId:normalized.review_id,redirect});
+   this.emit("titan-workforce:research-redirect",{missionId,workerId:targetWorker,review:normalized,redirect});
+   this.persistSnapshot();await this.save();
+   return {action:"redirect",review:normalized,redirect};
+  }
+
+  const blocker=clone(route.blocker||normalized.blocker||{});
+  this.missionControl.transition(missionId,"blocked",blocker.reason||blocker.message||"Supervisor blocked mission");
+  this.audit("cycle-review-blocked",{missionId,workerId:targetWorker,reviewId:normalized.review_id,blocker});
+  this.emit("titan-workforce:mission-blocked",{missionId,workerId:targetWorker,review:normalized,blocker});
+  this.persistSnapshot();await this.save();
+  return {action:"blocked",review:normalized,blocker};
+ }
+
+ async submitCycleReview(payload={}){
+  const pendingId=payload.pendingReviewId||payload.pending_id||payload.review_id||payload.reviewId||null;
+  let pending=pendingId?this.state.chatRuntime.pendingReviews[pendingId]:null;
+  if(!pending&&payload.missionId){
+   pending=Object.values(this.state.chatRuntime.pendingReviews).find(x=>x.missionId===payload.missionId&&x.status==="awaiting-result")||null;
+  }
+  const event=payload.event||pending?.event||null;
+  const workerId=payload.workerId||pending?.workerId||payload.review?.worker||payload.worker||null;
+  const review=payload.review||payload.cycleReview||payload.cycle_review||payload;
+  return this.consumeCycleReview(review,{event,workerId,pendingId:pending?.id||pendingId});
  }
 
  snapshot(){

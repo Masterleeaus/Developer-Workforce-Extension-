@@ -86,6 +86,7 @@ export class TitanRuntimeOwner{
    case "missionUpsert": result=api.missions.upsert(payload.mission||payload);await api.save();break;
    case "bindConversation": result=await api.liveChat.bindConversation(payload.workerId,payload.conversation);break;
    case "startCycle": result=await api.liveChat.startCycle(payload.workerId,payload.contract||payload);break;
+   case "submitCycleReview": result=await api.liveChat.submitCycleReview(payload);break;
    case "tick": result=await this.tick("command");break;
    case "usageStatus": result=api.usageGovernor?.status?.()||null;break;
    case "usageClearRestriction": result=api.usageGovernor?.clearRestriction?.()||null;await api.save();break;

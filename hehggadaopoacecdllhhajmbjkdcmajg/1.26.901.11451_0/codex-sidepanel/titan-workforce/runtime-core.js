@@ -93,7 +93,7 @@ export async function createTitanWorkforceRuntime({
  const missionCompiler=new TitanMissionCompiler({profiles:integration.profileApi,audit});
  const contextCompiler=new TitanContextCompiler({profiles:integration.profileApi,contextProvider:(missionId,opts)=>integration.contextForMission(missionId,opts),provenance:integration.provenance,usageGovernor,audit});
  const save=async()=>{state.updatedAt=Date.now();await storage.set({[WORKFORCE_STORAGE_KEY]:state});return true};
- const liveChat=new TitanLiveChatRuntime({state,integration,missionControl:missions,services,usageGovernor,audit,save,pollMs});
+ const liveChat=new TitanLiveChatRuntime({state,integration,missionControl:missions,services,usageGovernor,audit,save,pollMs,eventTarget});
  if(startTimer)liveChat.start();
  const controls=new TitanWorkforceControls(controller,audit);
  const mergeController=new TitanMergeController({audit});
