@@ -11,12 +11,19 @@ export function installLegacyNativeBridge(services,audit=()=>{}){
  }
  const codex=legacy.get("codex");
  if(codex){
-  services.register("codex",{
-   capabilities:["review","build","orchestrate"],
-   review:codex.review?.bind(codex),
-   build:codex.build?.bind(codex)||codex.execute?.bind(codex)||null,
-   orchestrate:codex.orchestrate?.bind(codex)||codex.review?.bind(codex)
-  });
+  const wrapped={capabilities:[]};
+  if(typeof codex.review==="function"){
+   wrapped.review=codex.review.bind(codex);wrapped.capabilities.push("review");
+  }
+  const buildMethod=typeof codex.build==="function"?"build":typeof codex.execute==="function"?"execute":null;
+  if(buildMethod){
+   wrapped.build=codex[buildMethod].bind(codex);wrapped.capabilities.push("build");
+  }
+  if(typeof codex.orchestrate==="function"){
+   wrapped.orchestrate=codex.orchestrate.bind(codex);wrapped.capabilities.push("orchestrate");
+  }
+  if(wrapped.capabilities.length)services.register("codex",wrapped);
+  audit("native-codex-capabilities",{capabilities:[...wrapped.capabilities],buildSource:buildMethod});
  }
  audit("native-services-bridged",{available:services.status()});
  return services.status();

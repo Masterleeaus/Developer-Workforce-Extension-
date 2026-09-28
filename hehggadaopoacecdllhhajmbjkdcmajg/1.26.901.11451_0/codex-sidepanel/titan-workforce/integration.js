@@ -68,10 +68,10 @@ export class TitanWorkforceIntegration{
   }
   const slot=this.controller.registry.get(mapped.canonicalSlotId);if(!slot||slot.executionClass!=="codex_builder")throw new Error("Codex builder required");
   this.audit("codex-packet-routed",{builderId:mapped.canonicalSlotId,pipelineBuilderId:mapped.pipelineSlotId,missionId:packet?.mission?.id||packet?.mission_id||slot.missionId||null,packetId:packet?.packet_id||packet?.packetId||null});
-  return this.services.require("codex").build({builderId:mapped.canonicalSlotId,packet});
+  return this.services.requireCapability("codex","build").build({builderId:mapped.canonicalSlotId,packet});
  }
  async orchestrate(bundle){
   const slot=this.controller.registry.get("ORCHESTRATOR");
-  return this.services.require("codex").orchestrate({orchestratorId:slot.id,bundle});
+  return this.services.requireCapability("codex","orchestrate").orchestrate({orchestratorId:slot.id,bundle});
  }
 }

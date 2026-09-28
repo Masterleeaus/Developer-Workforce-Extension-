@@ -39,6 +39,7 @@ assert(pg.ancestry("p2").length===2,"provenance ancestry failed");
 import {TitanExecutionServices} from "./execution-services.js";
 import {TitanWorkforceController} from "./controller.js";
 import {TitanWorkforceIntegration} from "./integration.js";
+import {installLegacyNativeBridge} from "./native-bridge.js";
 import {classifyCIFailure,recoveryRoute} from "./ci-failures.js";
 import {createVerificationState,recordGate,verificationDecision} from "./verification-plane.js";
 import {importLegacyVerification,evaluateBooleanEvidence} from "./verification-adapter.js";
@@ -48,7 +49,7 @@ const routingState=createWorkforceState();
 const routingServices=new TitanExecutionServices();
 const calls=[];
 routingServices.register("work",{review:async x=>{calls.push({kind:"work",...x});return {ok:true}}});
-routingServices.register("codex",{build:async x=>{calls.push({kind:"codex",...x});return {ok:true}}});
+routingServices.register("codex",{capabilities:["build"],build:async x=>{calls.push({kind:"codex",...x});return {ok:true}}});
 const routingController=new TitanWorkforceController(routingState,{services:routingServices});
 const routingMissions=new TitanMissionControl(routingState);
 const routingIntegration=new TitanWorkforceIntegration({state:routingState,controller:routingController,missionControl:routingMissions,services:routingServices});
@@ -60,6 +61,35 @@ assert(calls[0].supervisorId==="SUPERVISOR_A","WP3 Supervisor A must route to ca
 assert(calls[1].supervisorId==="SUPERVISOR_B","WP3 Supervisor B must route to canonical supervisor");
 assert(calls[2].builderId==="BUILDER_A","WP3 Builder A must route to canonical builder");
 assert(calls[3].builderId==="BUILDER_B","WP3 Builder B must route to canonical builder");
+
+const priorNativeServices=globalThis.TitanNativeServices;
+globalThis.TitanNativeServices={services:new Map([["codex",{review:async()=>({instruction:"review"})}]])};
+const reviewOnlyServices=new TitanExecutionServices();
+installLegacyNativeBridge(reviewOnlyServices);
+assert(reviewOnlyServices.status().codex.capabilities.length===1&&reviewOnlyServices.status().codex.capabilities[0]==="review","review-only provider must not advertise build/orchestrate");
+assert(!reviewOnlyServices.capabilityAvailable("codex","build"),"review-only provider build capability must be unavailable");
+assert(!reviewOnlyServices.capabilityAvailable("codex","orchestrate"),"review-only provider orchestrate capability must be unavailable");
+let buildUnavailable=false;try{reviewOnlyServices.requireCapability("codex","build")}catch(e){buildUnavailable=e.code==="CAPABILITY_UNAVAILABLE"}assert(buildUnavailable,"missing build must fail with CAPABILITY_UNAVAILABLE");
+let orchestrateUnavailable=false;try{reviewOnlyServices.requireCapability("codex","orchestrate")}catch(e){orchestrateUnavailable=e.code==="CAPABILITY_UNAVAILABLE"}assert(orchestrateUnavailable,"missing orchestrate must fail with CAPABILITY_UNAVAILABLE");
+
+const reviewOnlyState=createWorkforceState();
+const reviewOnlyIntegration=new TitanWorkforceIntegration({state:reviewOnlyState,controller:new TitanWorkforceController(reviewOnlyState,{services:reviewOnlyServices}),missionControl:new TitanMissionControl(reviewOnlyState),services:reviewOnlyServices});
+let dispatchUnavailable=false;try{await reviewOnlyIntegration.dispatchCodexPacket("builder-a",{builder_slot:"builder-a",mission:{id:"cap-test"}})}catch(e){dispatchUnavailable=e.code==="CAPABILITY_UNAVAILABLE"}assert(dispatchUnavailable,"Builder dispatch must surface CAPABILITY_UNAVAILABLE");
+let qaUnavailable=false;try{await reviewOnlyIntegration.orchestrate({mission:{id:"cap-test"}})}catch(e){qaUnavailable=e.code==="CAPABILITY_UNAVAILABLE"}assert(qaUnavailable,"Orchestrator dispatch must surface CAPABILITY_UNAVAILABLE");
+
+globalThis.TitanNativeServices={services:new Map([["codex",{execute:async()=>({ok:true})}]])};
+const executeServices=new TitanExecutionServices();
+installLegacyNativeBridge(executeServices);
+assert(executeServices.capabilityAvailable("codex","build"),"execute provider should expose real build capability");
+assert(!executeServices.capabilityAvailable("codex","orchestrate"),"execute provider must not imply orchestrate");
+
+globalThis.TitanNativeServices={services:new Map([["codex",{review:async()=>({}),build:async()=>({}),orchestrate:async()=>({})}]])};
+const fullCodexServices=new TitanExecutionServices();
+installLegacyNativeBridge(fullCodexServices);
+assert(fullCodexServices.capabilityAvailable("codex","review"),"full provider review capability");
+assert(fullCodexServices.capabilityAvailable("codex","build"),"full provider build capability");
+assert(fullCodexServices.capabilityAvailable("codex","orchestrate"),"full provider orchestrate capability");
+globalThis.TitanNativeServices=priorNativeServices;
 let mismatch=false;try{await routingIntegration.dispatchCodexPacket("builder-a",{builder_slot:"builder-b",mission:{id:"mX"}})}catch(e){mismatch=e.code==="BUILDER_SLOT_MISMATCH"}assert(mismatch,"builder packet mismatch must fail closed");
 assert(classifyCIFailure({message:"tenant isolation integration test failed"})==="TENANT_ISOLATION_FAILURE","CI taxonomy");
 const vv=createVerificationState("scope1");recordGate(vv,"git",{status:"pass"});recordGate(vv,"ci",{status:"fail",details:{message:"typescript typecheck failed"}});
