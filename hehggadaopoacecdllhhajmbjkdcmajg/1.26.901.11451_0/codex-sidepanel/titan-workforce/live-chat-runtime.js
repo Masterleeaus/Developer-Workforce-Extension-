@@ -1,4 +1,5 @@
 const clone=value=>value==null?value:JSON.parse(JSON.stringify(value));
+const CHAT_PRE_SIDE_EFFECT_CODES=new Set(["CONVERSATION_BUSY","CONVERSATION_IDENTITY_MISMATCH","AGENT_EMERGENCY_STOPPED","AGENT_QUARANTINED","AGENT_PAUSED"]);
 
 function schedulerCtor(){
  const guarded=globalThis.TitanChatFivePassIntegration?.GuardedChatFivePassScheduler;
@@ -22,13 +23,14 @@ function ensureRuntimeState(state){
 }
 
 export class TitanLiveChatRuntime{
- constructor({state,integration,missionControl,services,usageGovernor=null,audit=()=>{},save=async()=>{},pollMs=6000,eventTarget=globalThis}={}){
+ constructor({state,integration,missionControl,services,usageGovernor=null,sendLedger=null,audit=()=>{},save=async()=>{},pollMs=6000,eventTarget=globalThis}={}){
   if(!state||!integration||!missionControl||!services)throw new Error("Live Chat runtime dependencies are required");
   this.state=ensureRuntimeState(state);
   this.integration=integration;
   this.missionControl=missionControl;
   this.services=services;
   this.usageGovernor=usageGovernor;
+  this.sendLedger=sendLedger;
   this.audit=audit;
   this.save=save;
   this.eventTarget=eventTarget;
@@ -189,19 +191,35 @@ export class TitanLiveChatRuntime{
   if(action.action==="dispatch"){
    runtime.dispatchBaseline=Number(obs?.assistantCount||0);
    this.state.chatRuntime.observations[workerId]=runtime;
-   await this.integration.dispatchChatPass(workerId,action);
-   this.scheduler.confirmDispatch(workerId,action.key);
-   this.usageGovernor?.record?.("chat_turn",{missionId:action.missionId});
-   this.state.sendLedger.push({
-    key:action.key,
-    workerId,
-    missionId:action.missionId,
-    cycleId:action.cycleId,
-    passNumber:action.passNumber,
-    status:"sent",
-    at:Date.now()
-   });
-   this.state.sendLedger=this.state.sendLedger.slice(-1000);
+   if(this.sendLedger){
+    const claim=this.sendLedger.begin({key:action.key,kind:"chat-pass",missionId:action.missionId,agentId:workerId,metadata:{cycleId:action.cycleId,passNumber:action.passNumber}});
+    if(!claim.ok){
+     const status=claim.entry?.status||null;
+     if(["claimed","sent","recovery-required"].includes(status)){
+      slot.health="recovery-required";slot.status="blocked";this.state.controls.armed=false;this.state.controls.requiresReconciliation=true;
+     }
+     this.audit("chat-duplicate-suppressed",{workerId,key:action.key,status});
+     this.persistSnapshot();await this.save();
+     return{action:"duplicate-suppressed",workerId,key:action.key,status};
+    }
+    await this.save();
+   }
+   try{
+    await this.integration.dispatchChatPass(workerId,action);
+    if(this.sendLedger){this.sendLedger.markSent(action.key,{cycleId:action.cycleId,passNumber:action.passNumber});await this.save();}
+    this.scheduler.confirmDispatch(workerId,action.key);
+    this.usageGovernor?.record?.("chat_turn",{missionId:action.missionId});
+    if(this.sendLedger){this.sendLedger.complete(action.key,{cycleId:action.cycleId,passNumber:action.passNumber});await this.save();}
+   }catch(error){
+    const entry=this.sendLedger?.get(action.key);
+    if(entry?.status==="claimed"&&CHAT_PRE_SIDE_EFFECT_CODES.has(error?.code))this.sendLedger.fail(action.key,error);
+    else if(entry?.status==="claimed"||entry?.status==="sent")this.sendLedger.markRecoveryRequired(action.key,error);
+    this.persistSnapshot();await this.save();throw error;
+   }
+   if(!this.sendLedger){
+    this.state.sendLedger.push({key:action.key,workerId,missionId:action.missionId,cycleId:action.cycleId,passNumber:action.passNumber,status:"completed",at:Date.now()});
+    this.state.sendLedger=this.state.sendLedger.slice(-1000);
+   }
    this.syncWorkerSlot(workerId);
    this.persistSnapshot();
    await this.save();
