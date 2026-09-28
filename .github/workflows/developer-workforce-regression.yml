@@ -17,6 +17,8 @@ jobs:
           node-version: "22"
       - name: Validate manifest
         run: node -e "JSON.parse(require('fs').readFileSync('hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/manifest.json','utf8')); console.log('manifest PASS')"
+      - name: Package and static reference integrity
+        run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/tests/package-integrity.test.js
       - name: WP1 profiles
         run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/tests/titan-agent-profiles.test.js
       - name: WP2 scheduler
