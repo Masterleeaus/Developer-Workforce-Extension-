@@ -33,6 +33,8 @@ jobs:
         run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/stock-service-fallbacks.test.mjs
       - name: MCP registry and WebMCP bridge
         run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/mcp-registry.test.mjs
+      - name: Native execution capability broker
+        run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/execution-capabilities.test.mjs
       - name: Validate side-panel references
         run: |
           python - <<'PY'
