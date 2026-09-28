@@ -1,4 +1,4 @@
-import {verifyDiffScope,requireScopeExpansion} from "./scope-locks.js";
+import {verifyDiffScope,requireScopeExpansion,verifyApprovedExpansion} from "./scope-locks.js";
 
 function legacyServices(){
  const src=globalThis.TitanNativeServices?.services;
@@ -44,15 +44,21 @@ export function createScopedCodexService(codex,{getChangedPaths,audit=()=>{},req
    const changed=typeof getChangedPaths==="function"?await getChangedPaths({builderId,packet,result}):(result?.files_changed||result?.filesChanged||[]);
    const scope=packet?.scope_paths||packet?.scopePaths||[];
    const check=verifyDiffScope(changed,scope);
-   audit("scope-lock-checked",{builderId,missionId:packet?.mission?.id||packet?.mission_id,check});
+   const missionId=packet?.mission?.id||packet?.mission_id||packet?.missionId||null;
+   audit("scope-lock-checked",{builderId,missionId,packetId:packet?.packet_id||packet?.packetId||null,check});
    if(!check.ok){
-    const request=requireScopeExpansion({id:packet?.mission?.id||packet?.mission_id,scopePaths:scope},changed);
+    const request=requireScopeExpansion(packet,changed);
     const approval=await requestApproval(request);
     if(!approval?.approved){
-     const e=new Error("Codex diff violates mission scope: "+check.violations.join(", "));e.code="SCOPE_LOCK_VIOLATION";e.scope=check;throw e;
+     const e=new Error("Codex diff violates mission scope: "+check.violations.join(", "));
+     e.code="SCOPE_LOCK_VIOLATION";e.scope=check;e.scopeExpansionRequest=request;throw e;
     }
+    const applied=verifyApprovedExpansion(packet,changed,request,approval);
+    if(packet&&typeof packet==="object")Object.assign(packet,applied.target);
+    audit("scope-expansion-approved",{builderId,missionId,packetId:request.packetId,requestId:request.id,approvalId:applied.record.approval_id,addedPaths:applied.record.added_paths,verification:applied.verification});
+    return {...result,scopeVerification:applied.verification,scopeExpansion:applied.record,approvedPacket:applied.target};
    }
-   return {...result,scopeVerification:check};
+   return {...result,scopeVerification:check,approvedPacket:packet};
   }
  };
 }
