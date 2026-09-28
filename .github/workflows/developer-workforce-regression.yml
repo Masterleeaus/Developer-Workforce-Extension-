@@ -19,6 +19,8 @@ jobs:
         run: node -e "JSON.parse(require('fs').readFileSync('hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/manifest.json','utf8')); console.log('manifest PASS')"
       - name: Package and static reference integrity
         run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/tests/package-integrity.test.js
+      - name: Runtime observability
+        run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/tests/titan-runtime-observability.test.js
       - name: WP1 profiles
         run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/tests/titan-agent-profiles.test.js
       - name: WP2 scheduler
@@ -31,6 +33,8 @@ jobs:
         run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/core-selftest.mjs
       - name: Live chat runtime handoff
         run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/live-chat-runtime.test.mjs
+      - name: Repository intelligence and architecture index
+        run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/repository-intelligence.test.mjs
       - name: WP4 control-state safety
         run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/control-selftest.mjs
       - name: Stock native bridge and fallback services
