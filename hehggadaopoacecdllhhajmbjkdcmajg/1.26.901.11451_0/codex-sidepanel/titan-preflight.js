@@ -34,6 +34,12 @@ export async function runTitanPreflight(){
  packageChecks.push(packageCheck("Agent profiles",profileCount>=30,String(profileCount)));
  packageChecks.push(packageCheck("Five-pass scheduler",!!window.TitanChatFivePass?.ChatFivePassScheduler));
  packageChecks.push(packageCheck("Work/Codex pipeline",!!window.TitanWorkCodexPipeline));
+ const services=api?.services?.status?.()||{};
+ packageChecks.push({name:"Codex service",status:services.codex?.available?DIAGNOSTIC_STATUS.PASS:DIAGNOSTIC_STATUS.UNAVAILABLE,ok:services.codex?.available===true,critical:false,category:"workforce-readiness",detail:services.codex?.source||"unavailable",evidence:services.codex||null});
+ packageChecks.push({name:"Git service",status:services.git?.available?DIAGNOSTIC_STATUS.PASS:DIAGNOSTIC_STATUS.UNAVAILABLE,ok:services.git?.available===true,critical:false,category:"workforce-readiness",detail:services.git?.source||"unavailable",evidence:services.git||null});
+ packageChecks.push({name:"GitHub service",status:services.github?.available?DIAGNOSTIC_STATUS.PASS:DIAGNOSTIC_STATUS.UNAVAILABLE,ok:services.github?.available===true,critical:false,category:"workforce-readiness",detail:services.github?.source||"unavailable",evidence:services.github||null});
+ packageChecks.push({name:"Repository service",status:services.repository?.available?DIAGNOSTIC_STATUS.PASS:DIAGNOSTIC_STATUS.UNAVAILABLE,ok:services.repository?.available===true,critical:false,category:"workforce-readiness",detail:services.repository?.source||"unavailable",evidence:services.repository||null});
+ packageChecks.push({name:"Runtime Verification",status:services.runtime?.available?DIAGNOSTIC_STATUS.PASS:DIAGNOSTIC_STATUS.UNAVAILABLE,ok:services.runtime?.available===true,critical:false,category:"workforce-readiness",detail:services.runtime?.source||"unavailable",evidence:services.runtime||null});
 
  const criticalFailures=[
   ...extensionRuntime.criticalFailures,
