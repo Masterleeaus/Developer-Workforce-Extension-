@@ -38,12 +38,67 @@ assert(pg.ancestry("p2").length===2,"provenance ancestry failed");
 
 import {TitanExecutionServices} from "./execution-services.js";
 import {TitanWorkforceController} from "./controller.js";
+import {TitanWorkforceControls} from "./controls.js";
 import {TitanWorkforceIntegration} from "./integration.js";
 import {installLegacyNativeBridge} from "./native-bridge.js";
 import {classifyCIFailure,recoveryRoute} from "./ci-failures.js";
 import {createVerificationState,recordGate,verificationDecision} from "./verification-plane.js";
 import {importLegacyVerification,evaluateBooleanEvidence} from "./verification-adapter.js";
 const services=new TitanExecutionServices();services.register("github",{capabilities:["truth"]});assert(services.available("github"),"service registry");
+
+const controlState=createWorkforceState();
+const controlEvents=[];
+const controlController=new TitanWorkforceController(controlState,{audit:(type,data)=>controlEvents.push({type,data})});
+const controlApi=new TitanWorkforceControls(controlController,(type,data)=>controlEvents.push({type,data}));
+controlController.assign("A1",{missionId:"control-m1"});
+const a1=controlController.registry.get("A1");
+assert(a1.status==="assigned","control fixture assignment");
+controlApi.pauseAgent("A1","test");
+assert(a1.status==="assigned"&&a1.control.paused===true,"pause must preserve agent status");
+controlApi.resumeAgent("A1");
+assert(a1.status==="assigned"&&a1.control.paused===false,"resume must preserve agent status");
+
+controlApi.quarantine("A1","suspect");
+assert(a1.status==="assigned"&&a1.control.quarantined===true&&a1.control.paused===true,"quarantine must be orthogonal and paused");
+let quarantineResumeBlocked=false;try{controlApi.resumeAgent("A1")}catch(e){quarantineResumeBlocked=e.code==="INVALID_CONTROL_TRANSITION"}assert(quarantineResumeBlocked,"resume must not bypass quarantine");
+let quarantinePauseBlocked=false;try{controlApi.pauseAgent("A1")}catch(e){quarantinePauseBlocked=e.code==="INVALID_CONTROL_TRANSITION"}assert(quarantinePauseBlocked,"pause must not overwrite quarantine");
+controlApi.unquarantine("A1","reviewed");
+assert(a1.control.quarantined===false&&a1.control.paused===true,"unquarantine must leave agent paused");
+controlApi.resumeAgent("A1");
+assert(a1.control.paused===false,"explicit resume required after unquarantine");
+
+controlController.assign("A3",{missionId:"control-m3"});
+controlApi.quarantine("A3","isolate");
+controlApi.pauseSquad("A","squad-pause");
+assert(controlController.registry.get("A3").control.quarantined===true,"squad pause must preserve quarantine");
+assert(controlController.registry.get("A3").control.pauseReason==="quarantine","squad pause must not overwrite quarantine pause reason");
+
+controlController.assign("B1",{missionId:"control-b1"});
+controlApi.pauseAgent("B1","pre-stop");
+const b1=controlController.registry.get("B1");
+const b1Status=b1.status;
+controlController.emergencyStop("test-stop");
+assert(b1.status===b1Status&&b1.control.paused===true&&b1.control.emergencyStopped===true,"E-STOP must preserve status and pause state");
+let estopResumeBlocked=false;try{controlApi.resumeAgent("B1")}catch(e){estopResumeBlocked=e.code==="INVALID_CONTROL_TRANSITION"}assert(estopResumeBlocked,"E-STOP must block resume");
+let prematureClearBlocked=false;try{controlController.clearEmergencyStop()}catch(e){prematureClearBlocked=e.code==="RECOVERY_RECONCILIATION_REQUIRED"}assert(prematureClearBlocked,"E-STOP clear requires reconciliation");
+controlController.clearEmergencyStop({reconciled:true});
+assert(controlState.controls.armed===false&&controlState.controls.emergencyStop===false,"E-STOP clear must remain disarmed");
+assert(b1.control.emergencyStopped===false&&b1.control.paused===true,"E-STOP clear must preserve prior pause state");
+controlApi.resumeAgent("B1");
+assert(b1.control.paused===false,"agent may resume only after E-STOP reconciliation");
+
+controlController.assign("B2",{missionId:"control-b2"});
+controlApi.pauseAgent("B2","hold");
+let pausedAssignBlocked=false;try{controlController.assign("B2",{missionId:"other"})}catch(e){pausedAssignBlocked=e.code==="AGENT_NOT_AVAILABLE"}assert(pausedAssignBlocked,"assignment must fail for paused agent");
+controlApi.resumeAgent("B2");
+controlApi.quarantine("B2","hold");
+let quarantineAssignBlocked=false;try{controlController.assign("B2",{missionId:"other"})}catch(e){quarantineAssignBlocked=e.code==="AGENT_NOT_AVAILABLE"}assert(quarantineAssignBlocked,"assignment must fail for quarantined agent");
+
+const terminalSlot=controlController.registry.get("B3");terminalSlot.status="verified";
+controlController.emergencyStop("terminal-test");
+assert(terminalSlot.control.emergencyStopped===false,"terminal agents must not be marked emergency-stopped");
+controlController.clearEmergencyStop({reconciled:true});
+let terminalPauseBlocked=false;try{controlApi.pauseAgent("B3")}catch(e){terminalPauseBlocked=e.code==="INVALID_CONTROL_TRANSITION"}assert(terminalPauseBlocked,"terminal agent pause must fail closed");
 
 const routingState=createWorkforceState();
 const routingServices=new TitanExecutionServices();
