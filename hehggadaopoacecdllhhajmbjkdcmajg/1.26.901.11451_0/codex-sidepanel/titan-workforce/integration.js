@@ -95,8 +95,9 @@ export class TitanWorkforceIntegration{
   const slot=this.controller.registry.get(workerId);if(!slot||slot.executionClass!=="chat_worker")throw new Error("Chat slot required");
   const service=this.services.require("chat");
   if(slot.conversation?.identity&&service.assertConversation)await service.assertConversation(slot.conversation.identity);
-  const mission=this.profileMission(slot),instruction=this.withProfileInstruction(workerId,action.instruction,mission);
-  const profileIds=this.compileProfileForSlot(workerId,{mission})?.profile_ids||[];
+  const mission=this.profileMission(slot),context=this.compileProfileForSlot(workerId,{mission});
+  const instruction=context?context.text+"\n\n## CURRENT INSTRUCTION\n"+String(action.instruction):action.instruction;
+  const profileIds=context?.profile_ids||[];
   const result=await service.send({workerId,conversation:slot.conversation,instruction,idempotencyKey:action.key,profileIds:[...profileIds]});
   this.audit("chat-pass-sent",{workerId,missionId:slot.missionId,key:action.key,profileIds:[...profileIds]});return result;
  }
