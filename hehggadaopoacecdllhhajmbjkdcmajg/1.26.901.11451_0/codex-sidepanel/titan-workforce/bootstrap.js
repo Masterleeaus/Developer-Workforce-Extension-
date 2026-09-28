@@ -17,6 +17,10 @@ import {TitanApprovalStore,persistApprovedScopeExpansion} from "./approvals.js";
 import {createAuthoritativeChangedPathResolver} from "./changed-path-evidence.js";
 import {enforceScopedCodexBuildCapability} from "./scoped-codex-capability.js";
 import {TitanLiveChatRuntime} from "./live-chat-runtime.js";
+import {TitanArchitectureIndex} from "./architecture-index.js";
+import {TitanRepositoryIntelligence} from "./repository-intelligence.js";
+import {TitanMissionCompiler} from "./mission-compiler.js";
+import {TitanContextCompiler} from "./context-compiler.js";
 
 const KEY="titanDeveloperWorkforceV4";
 async function load(){
@@ -41,13 +45,19 @@ async function load(){
  installScopeGuard();
  const resyncCapabilities=()=>queueMicrotask(()=>{executionCapabilities.sync();installScopeGuard()});
  window.addEventListener("titan:stock-native-service",resyncCapabilities);
- const integration=new TitanWorkforceIntegration({state,controller,missionControl:missions,services,capabilities,audit});
+ const architecture=new TitanArchitectureIndex({audit});
+ const repositoryIntelligence=new TitanRepositoryIntelligence({state,audit});
+ const integration=new TitanWorkforceIntegration({state,controller,missionControl:missions,services,capabilities,repositoryIntelligence,architectureIndex:architecture,audit});
  integration.bindGlobals();
+ const missionCompiler=new TitanMissionCompiler({profiles:integration.profileApi,audit});
+ const contextCompiler=new TitanContextCompiler({profiles:integration.profileApi,contextProvider:(missionId,opts)=>integration.contextForMission(missionId,opts),provenance:integration.provenance,audit});
  const save=()=>chrome.storage.local.set({[KEY]:state});
  const liveChat=new TitanLiveChatRuntime({state,integration,missionControl:missions,services,audit,save});
  liveChat.start();
  const controls=new TitanWorkforceControls(controller,audit);const mergeController=new TitanMergeController({audit});
- const api={state,controller,missions,services,capabilities,mcp,approvals,executionCapabilities,integration,liveChat,controls,mergeController,stopNativeEventBridge,stopCapabilityResync:()=>window.removeEventListener("titan:stock-native-service",resyncCapabilities),save};
+ const onMergeIndex=event=>{const d=event.detail||{};if(!d.repository||!d.nextCommit||!Array.isArray(d.changes))return;try{repositoryIntelligence.applyChanges({repository:d.repository,baseCommit:d.baseCommit,nextCommit:d.nextCommit,changes:d.changes});save().catch(()=>{})}catch(error){audit("repository-index-refresh-failed",{repository:d.repository,nextCommit:d.nextCommit,message:String(error?.message||error)})}};
+ window.addEventListener("titan-workforce:merge-complete",onMergeIndex);
+ const api={state,controller,missions,services,capabilities,mcp,approvals,executionCapabilities,integration,architecture,repositoryIntelligence,missionCompiler,contextCompiler,liveChat,controls,mergeController,stopNativeEventBridge,stopCapabilityResync:()=>window.removeEventListener("titan:stock-native-service",resyncCapabilities),stopRepositoryIndexRefresh:()=>window.removeEventListener("titan-workforce:merge-complete",onMergeIndex),save};
  globalThis.TitanCapabilityBroker=capabilities;
  globalThis.TitanMcpRegistry=mcp;
  globalThis.TitanDeveloperWorkforce=api;
