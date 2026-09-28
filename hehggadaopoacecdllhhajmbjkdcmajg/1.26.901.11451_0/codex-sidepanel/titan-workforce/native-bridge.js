@@ -43,7 +43,7 @@ export function installConversationServices(services,{chat=null,work=null}={},au
  audit("conversation-services-installed",{chat:!!chat,work:!!work});
  return services.status();
 }
-export function createScopedCodexService(codex,{getChangedPaths,audit=()=>{},requestApproval=()=>null}={}){
+export function createScopedCodexService(codex,{getChangedPaths,audit=()=>{},requestApproval=()=>null,persistScopeExpansion=()=>null}={}){
  if(!codex)throw new Error("Codex service required");
  return {
   ...codex,
@@ -60,8 +60,23 @@ export function createScopedCodexService(codex,{getChangedPaths,audit=()=>{},req
     if(!approval?.approved){
      const e=new Error("Codex diff violates mission scope: "+check.violations.join(", "));e.code="SCOPE_LOCK_VIOLATION";e.scope=check;throw e;
     }
+    await persistScopeExpansion({request,approval,packet,builderId,changedPaths:changed});
+    const expanded=[...new Set([...scope,...check.violations])];
+    const recheck=verifyDiffScope(changed,expanded);
+    audit("scope-expansion-approved",{builderId,missionId:packet?.mission?.id||packet?.mission_id,approvalId:approval.id||null,originalScope:scope,expandedScope:expanded,changedPaths:changed,recheck});
+    if(!recheck.ok){const e=new Error("Approved scope expansion did not cover actual diff");e.code="SCOPE_EXPANSION_INCOMPLETE";e.scope=recheck;throw e}
+    return {...result,scopeVerification:recheck,scopeExpansion:{approvalId:approval.id||null,expandedScope:expanded}};
    }
    return {...result,scopeVerification:check};
   }
  };
+}
+
+export function enforceScopedCodexRegistration(services,options={}){
+ const raw=services.get("codex");if(!raw)return null;
+ if(raw.__scopeLocked===true)return raw;
+ if(typeof raw.build!=="function")return raw;
+ const scoped=createScopedCodexService(raw,options);Object.defineProperty(scoped,"__scopeLocked",{value:true,enumerable:false});
+ scoped.source=(raw.source||"codex")+"+scope-lock";
+ services.register("codex",scoped);return scoped;
 }
