@@ -41,10 +41,53 @@ import {TitanWorkforceController} from "./controller.js";
 import {TitanWorkforceControls} from "./controls.js";
 import {TitanWorkforceIntegration} from "./integration.js";
 import {installLegacyNativeBridge} from "./native-bridge.js";
+import {conversationIdentity,bindConversation,createConversationService} from "./conversation-service.js";
 import {classifyCIFailure,recoveryRoute} from "./ci-failures.js";
 import {createVerificationState,recordGate,verificationDecision} from "./verification-plane.js";
 import {importLegacyVerification,evaluateBooleanEvidence} from "./verification-adapter.js";
 const services=new TitanExecutionServices();services.register("github",{capabilities:["truth"]});assert(services.available("github"),"service registry");
+
+assert(conversationIdentity("https://chatgpt.com/c/abc-123")?.conversationId==="abc-123","supported ChatGPT conversation identity");
+assert(conversationIdentity("https://chatgpt.com/c/abc-123?model=test")?.key==="https://chatgpt.com/c/abc-123","conversation key should ignore query parameters");
+assert(conversationIdentity("https://chatgpt.com/")===null,"ChatGPT homepage must not be autonomously bindable");
+assert(conversationIdentity("https://chatgpt.com/g/g-example")===null,"custom GPT route without stable /c identity must not be bindable");
+assert(conversationIdentity("https://example.com/c/abc-123")===null,"non-ChatGPT origin must not be bindable");
+
+const priorChrome=globalThis.chrome;
+let mockTabUrl="https://chatgpt.com/c/abc-123",scriptResponses=[],scriptCalls=0;
+globalThis.chrome={
+ tabs:{get:async tabId=>({id:tabId,url:mockTabUrl,title:"Mock conversation"})},
+ scripting:{executeScript:async()=>{scriptCalls++;return [{result:scriptResponses.shift()}]}}
+};
+const boundConversation=await bindConversation(77);
+assert(boundConversation.key==="https://chatgpt.com/c/abc-123"&&boundConversation.tabId===77,"supported conversation should bind");
+
+const safeConversationService=createConversationService();
+scriptResponses=[
+ {identityMatches:true,generating:false,composerReady:true,assistantCount:1,lastText:"ready"},
+ {ok:true}
+];
+const safeSend=await safeConversationService.send({conversation:boundConversation,instruction:"NEXT",idempotencyKey:"safe-1"});
+assert(safeSend.ok===true&&scriptCalls===2,"verified conversation send should succeed");
+
+mockTabUrl="https://example.com/form";
+const callsBeforeWrongSite=scriptCalls;
+let wrongSiteBlocked=false;try{await bindConversation(78)}catch(e){wrongSiteBlocked=e.code==="CONVERSATION_IDENTITY_MISMATCH"}assert(wrongSiteBlocked,"arbitrary website binding must fail");
+let wrongSiteSendBlocked=false;try{await safeConversationService.send({conversation:boundConversation,instruction:"DO NOT SEND"})}catch(e){wrongSiteSendBlocked=e.code==="CONVERSATION_IDENTITY_MISMATCH"}assert(wrongSiteSendBlocked,"navigation to unrelated site must block send");
+assert(scriptCalls===callsBeforeWrongSite,"wrong-site send must fail before page script execution");
+
+mockTabUrl="https://chatgpt.com/";
+let homepageBlocked=false;try{await bindConversation(79)}catch(e){homepageBlocked=e.code==="CONVERSATION_IDENTITY_MISMATCH"}assert(homepageBlocked,"new-chat/homepage binding must fail until stable conversation exists");
+
+mockTabUrl="https://chatgpt.com/c/different";
+let reusedTabBlocked=false;try{await safeConversationService.assertConversation(boundConversation)}catch(e){reusedTabBlocked=e.code==="CONVERSATION_IDENTITY_MISMATCH"}assert(reusedTabBlocked,"tab reuse/navigation to different conversation must fail closed");
+
+mockTabUrl="https://chatgpt.com/c/abc-123";
+scriptResponses=[{identityMatches:false,generating:false,composerReady:true}];
+let pageIdentityBlocked=false;try{await safeConversationService.send({conversation:boundConversation,instruction:"DO NOT SEND"})}catch(e){pageIdentityBlocked=e.code==="CONVERSATION_IDENTITY_MISMATCH"}assert(pageIdentityBlocked,"in-page identity mismatch must block send");
+
+globalThis.chrome=priorChrome;
+
 
 const controlState=createWorkforceState();
 const controlEvents=[];
