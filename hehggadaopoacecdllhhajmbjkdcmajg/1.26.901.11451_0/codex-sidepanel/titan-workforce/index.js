@@ -33,3 +33,4 @@ export * from "./maintenance.js";
 
 export * from "./cockpit-diagnostics.js";
 \nexport * from "./observability.js";\n\nexport * from "./conversation-lifecycle.js";\nexport * from "./git-mission-substrate.js";\n
+export * from "./extension-diagnostics.js";
