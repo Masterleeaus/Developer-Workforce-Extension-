@@ -16,6 +16,12 @@ async function load(){
  const stored=await chrome.storage.local.get([KEY,LEGACY_KEY]);
  const state=stored[KEY]?migrateWorkforceState(stored[KEY]):migrateWorkforceState(stored[LEGACY_KEY]||createWorkforceState());
  const audit=(type,data={})=>window.dispatchEvent(new CustomEvent("titan-workforce:audit",{detail:{type,data,at:Date.now()}}));
+ const repair=state.recovery?.stateRepair;
+ if(repair?.repaired){
+  const detail={severe:!!repair.severe,issues:(repair.issues||[]).map(x=>({code:x.code,severe:!!x.severe,slotId:x.slotId||null,missionId:x.missionId||null}))};
+  audit("state-repaired",detail);
+  window.dispatchEvent(new CustomEvent("titan-workforce:state-repair",{detail}));
+ }
  const services=new TitanExecutionServices();
  const missions=new TitanMissionControl(state);
  const controller=new TitanWorkforceController(state,{audit,services,missionControl:missions});
