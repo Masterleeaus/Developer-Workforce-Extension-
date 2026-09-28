@@ -58,8 +58,9 @@ async function discoverConversations(){
  return conversationCandidates;
 }
 async function bindAgent(id,tabId){
- if(!Number.isSafeInteger(Number(tabId)))throw new Error("Choose a ChatGPT conversation first");
- await command("bindAgentConversation",{id,tabId:Number(tabId)});
+ const n=Number(tabId);
+ if(!String(tabId??"").trim()||!Number.isSafeInteger(n)||n<0)throw new Error("Choose a ChatGPT conversation first");
+ await command("bindAgentConversation",{id,tabId:n});
  await refresh();
 }
 async function runDiagnostics(){
