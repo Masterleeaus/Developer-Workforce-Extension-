@@ -10,5 +10,5 @@ export class TitanExecutionServices{
  get(kind){return this.services.get(kind)||null}
  require(kind){const s=this.get(kind);if(!s)throw new Error("Execution service unavailable: "+kind);return s}
  available(kind){return !!this.get(kind)}
- status(){return Object.fromEntries(SERVICE_KINDS.map(k=>[k,{available:this.available(k),capabilities:this.get(k)?.capabilities||[]}]))}
+ status(){return Object.fromEntries(SERVICE_KINDS.map(k=>{const s=this.get(k);return [k,{available:!!s,source:s?.source||null,capabilities:s?.capabilities||[]}]}))}
 }
