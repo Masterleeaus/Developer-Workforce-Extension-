@@ -1,0 +1,43 @@
+name: Developer Workforce Full Regression
+on:
+  pull_request:
+    paths:
+      - "hehggadaopoacecdllhhajmbjkdcmajg/**"
+      - ".github/workflows/developer-workforce-regression.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Validate manifest
+        run: node -e "JSON.parse(require('fs').readFileSync('hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/manifest.json','utf8')); console.log('manifest PASS')"
+      - name: WP1 profiles
+        run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/tests/titan-agent-profiles.test.js
+      - name: WP2 scheduler
+        run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/titan-workforce/chat-five-pass-scheduler.test.js
+      - name: WP2 integration
+        run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/titan-workforce/chat-five-pass-integration.test.js
+      - name: WP3 pipeline
+        run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/titan-work-codex-pipeline-selftest.js
+      - name: WP4 core
+        run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/core-selftest.mjs
+      - name: Validate side-panel references
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path("hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel")
+          html=(p/"index.html").read_text()
+          missing=[]
+          for src in re.findall(r'<script[^>]+src="([^"]+)"',html):
+              q=(p/src).resolve()
+              if not q.exists(): missing.append((src,str(q)))
+          if missing: raise SystemExit("Missing script references: "+repr(missing))
+          print("side-panel references PASS")
+          PY
