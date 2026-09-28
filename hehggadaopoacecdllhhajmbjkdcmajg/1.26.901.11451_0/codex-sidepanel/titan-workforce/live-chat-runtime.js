@@ -93,6 +93,30 @@ export class TitanLiveChatRuntime{
   return clone(slot);
  }
 
+ async replaceConversation(workerId,conversation,{checkpointId=null}={}){
+  const slot=this.integration.controller.registry.get(workerId);
+  if(!slot||slot.executionClass!=="chat_worker")throw new Error("Chat worker slot required");
+  if(!conversation?.key||!conversation?.tabId)throw new Error("Fresh conversation identity is required");
+  const current=slot.conversation;
+  if(current?.key===conversation.key)throw new Error("Fresh conversation identity must differ");
+  const chat=this.services.require("chat");
+  if(current?.key){
+   const observation=await chat.observe(current).catch(error=>{if(error?.code==="CONVERSATION_IDENTITY_MISMATCH")return null;throw error});
+   if(observation?.generating){const e=new Error("Cannot rotate while conversation is generating");e.code="CONVERSATION_BUSY";throw e}
+  }
+  await chat.assertConversation?.(conversation);
+  const worker=this.scheduler.getWorker(workerId);
+  slot.conversation=clone(conversation);
+  worker.conversationIdentity=conversation.key;
+  worker.revision=Number(worker.revision||0)+1;
+  this.state.chatRuntime.observations[workerId]={assistantCount:0,dispatchBaseline:null,lastObservedAt:Date.now()};
+  this.syncWorkerSlot(workerId);
+  this.persistSnapshot();
+  await this.save();
+  this.audit("chat-conversation-rotated",{workerId,missionId:worker.missionId||slot.missionId||null,fromKey:current?.key||null,toKey:conversation.key,checkpointId});
+  return clone(slot);
+ }
+
  async startCycle(workerId,{missionId,cycleId,queue}){
   const slot=this.integration.controller.registry.get(workerId);
   if(!slot||slot.executionClass!=="chat_worker")throw new Error("Chat worker slot required");
