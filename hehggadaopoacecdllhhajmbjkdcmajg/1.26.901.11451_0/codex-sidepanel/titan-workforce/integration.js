@@ -101,5 +101,4 @@ export class TitanWorkforceIntegration{
    this.usageGovernor?.record?.("codex_turn",{missionId});return result;
   }finally{this.usageGovernor?.setConcurrency?.({codex:Math.max(0,(this.state.usageGovernor?.metrics?.activeCodex||1)-1)})}
  }
- }
 }
