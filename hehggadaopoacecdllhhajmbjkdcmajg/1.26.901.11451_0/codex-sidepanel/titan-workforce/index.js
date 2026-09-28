@@ -29,3 +29,4 @@ export * from "./scoped-codex-capability.js";
 export * from "./runtime-verifiers.js";
 export * from "./credential-broker.js";
 export * from "./high-impact-policy.js";
+export * from "./maintenance.js";
