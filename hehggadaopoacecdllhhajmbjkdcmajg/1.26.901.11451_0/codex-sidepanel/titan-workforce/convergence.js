@@ -128,15 +128,18 @@ export function deriveObjectiveProgress(missionId,{research=null,work=null,build
  const gates=verification?.gates||{};
  const researchPass=research?.complete===true||research?.ready===true;
  const workPass=work?.approved===true||work?.deltaApproved===true;
- const buildPass=build?.complete===true||(arr(build?.results).length>0&&arr(build.results).every(r=>arr(r.blockers).length===0&&arr(r.remaining_implementation||r.remainingImplementation).length===0));
+ const buildResults=arr(build?.results);
+ const buildBlocked=build?.blocked===true||buildResults.some(r=>arr(r.blockers).length>0);
+ const buildFailed=build?.failed===true||buildResults.some(r=>r?.status==="fail"||r?.status==="failed");
+ const buildPass=build?.complete===true||(buildResults.length>0&&buildResults.every(r=>arr(r.blockers).length===0&&arr(r.remaining_implementation||r.remainingImplementation).length===0&&r?.status!=="fail"&&r?.status!=="failed"));
  const orchState=orchestrator?.state||orchestrator?.decision||null;
  const orchPass=orchState==="COMPLETE"||gates.orchestrator?.status==="pass";
 
  const defs={
   research:{status:stageStatus(researchPass,research?.blocked===true),evidence:evidenceList(research?.evidence)},
   work_approval:{status:stageStatus(workPass,work?.blocked===true),evidence:evidenceList(work?.evidence)},
-  build:{status:stageStatus(buildPass,build?.blocked===true),evidence:evidenceList(build?.evidence)},
-  orchestrator_qa:{status:stageStatus(orchPass,orchState==="BLOCKED"),evidence:evidenceList(orchestrator?.evidence)},
+  build:{status:buildFailed?"fail":stageStatus(buildPass,buildBlocked),evidence:evidenceList(build?.evidence)},
+  orchestrator_qa:{status:orchPass?"pass":orchState==="BLOCKED"?"blocked":orchState==="REPAIR"?"fail":"pending",evidence:evidenceList(orchestrator?.evidence)},
   git:{status:gates.git?.status==="fail"||gates.ci?.status==="fail"?"fail":gates.git?.status==="pass"&&gates.ci?.status==="pass"?"pass":"pending",evidence:[...evidenceList(gates.git?.evidence),...evidenceList(gates.ci?.evidence)]},
   runtime:{status:gates.runtime?.status||"pending",evidence:evidenceList(gates.runtime?.evidence)},
   acceptance:{status:gates.acceptance?.status||"pending",evidence:evidenceList(gates.acceptance?.evidence)}
