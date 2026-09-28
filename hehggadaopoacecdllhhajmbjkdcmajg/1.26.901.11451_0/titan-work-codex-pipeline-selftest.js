@@ -68,6 +68,37 @@
     next_decision: "CONTINUE_5"
   }), "15 passes must require an explicit decision");
 
+  const adaptedMission = api.normalizeMission({
+    id: "mission-alias",
+    repo: "example/repo",
+    acceptance: [{ id: "a" }],
+    verificationRequirements: ["browser"]
+  });
+  ok(adaptedMission.repository === "example/repo", "Mission repo alias should normalize");
+  ok(adaptedMission.acceptance_criteria.length === 1, "Mission acceptance alias should normalize");
+  ok(adaptedMission.runtime_requirements.length === 1, "Mission verification requirements alias should normalize");
+
+  const wp2Event = {
+    type: "supervisor_review_required",
+    at: 5000,
+    workerId: "B2",
+    squad: "B",
+    missionId: "mission-1",
+    cycleId: "cycle-7",
+    detail: {
+      completedPasses: [1,2,3,4,5].map(n => ({ passNumber: n, result: { ok: true } }))
+    }
+  };
+  const adaptedReviewRequest = api.adaptChatSupervisorReviewEvent(wp2Event, mission());
+  ok(adaptedReviewRequest.supervisor_slot === "supervisor-b", "WP2 Squad B event must route to Work Supervisor B");
+  ok(adaptedReviewRequest.chat_cycle.cycle_id === "cycle-7", "WP2 cycle identity must be preserved");
+  expectThrow(() => api.adaptChatSupervisorReviewEvent({
+    type: "supervisor_review_required",
+    workerId: "A1",
+    squad: "A",
+    detail: { completedPasses: [1,2,3,4] }
+  }, mission()), "malformed WP2 supervisor event must fail closed");
+
   const supervisorA = api.createSupervisorReviewRequest({
     mission: mission(),
     worker: "A1",
@@ -202,6 +233,8 @@
     checks: [
       "5/10/15-pass epoch routing",
       "15-pass explicit-decision enforcement",
+      "WP1/Mission Control alias normalization",
+      "WP2 supervisor_review_required event adaptation",
       "Work Supervisor A/B deterministic routing",
       "CycleReview -> ApprovedImplementationDelta provenance",
       "delta approval validation",
