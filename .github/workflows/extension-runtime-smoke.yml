@@ -1,0 +1,29 @@
+name: Extension Runtime Smoke Tests
+
+on:
+  pull_request:
+    paths:
+      - "hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/background.js"
+      - "hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/manifest.json"
+      - "hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/content-scripts/**"
+      - "hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/chunks/**"
+      - "hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/**"
+      - "hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-work-sidepanel.html"
+      - "hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/microphone-permission.html"
+      - "hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/tests/extension-runtime-smoke.test.js"
+      - ".github/workflows/extension-runtime-smoke.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Extension runtime and message-handshake smoke tests
+        run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/tests/extension-runtime-smoke.test.js
