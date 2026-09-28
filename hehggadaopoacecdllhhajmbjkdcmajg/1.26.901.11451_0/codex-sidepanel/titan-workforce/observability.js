@@ -39,7 +39,12 @@ const TYPE_ALIASES=Object.freeze({
  "mission-transition:complete":"MISSION_COMPLETE",
  "mission-transition:verified":"MISSION_COMPLETE",
  "mcp-call-failed":"MCP_FAILURE",
+ "mcp-tool-failed":"MCP_FAILURE",
+ "mcp-refresh-failed":"MCP_FAILURE",
  "tool-call-failed":"TOOL_FAILURE",
+ "capability-failed":"TOOL_FAILURE",
+ "runtime-verification":"RUNTIME_VERIFIED",
+ "mission-runtime-verification":"RUNTIME_VERIFIED",
  "mission-context-compiled":"CONTEXT_COMPILED",
  "retry":"RETRY",
  "stale-branch":"STALE_BRANCH",
@@ -122,9 +127,14 @@ export class TitanWorkforceEventLog{
  fromAudit(type,data={},meta={}){
   const key=String(type||"").toLowerCase();
   const transition=/^mission-transition:(.+)$/.exec(key);
-  const canonical=TYPE_ALIASES[key]||(transition?TYPE_ALIASES["mission-transition:"+transition[1]]:null);
+  let canonical=TYPE_ALIASES[key]||(transition?TYPE_ALIASES["mission-transition:"+transition[1]]:null);
+  if(key==="usage-recorded"&&data.type==="context")canonical="CONTEXT_COMPILED";
+  if(key==="usage-recorded"&&data.type==="retry")canonical="RETRY";
+  if(key==="usage-recorded"&&data.type==="repair")canonical="REPAIR";
   if(!canonical)return null;
   const details={auditType:type,...clone(meta.details||{})};
+  if(canonical==="CONTEXT_COMPILED"&&Number.isFinite(data.characters))details.characters=Number(data.characters);
+  if(canonical==="RUNTIME_VERIFIED"&&data.status)details.status=data.status;
   if(canonical==="ORCHESTRATOR_DECISION"&&data.decision)details.decision=data.decision;
   return this.append({
    type:canonical,
