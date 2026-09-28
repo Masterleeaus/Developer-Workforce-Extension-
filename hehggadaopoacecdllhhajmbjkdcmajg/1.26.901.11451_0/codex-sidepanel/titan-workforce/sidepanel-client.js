@@ -2,8 +2,25 @@ const COMMAND_TYPE="TITAN_WORKFORCE_RUNTIME_COMMAND";
 const STATE_TYPE="TITAN_WORKFORCE_RUNTIME_STATE";
 let snapshot=null;
 let timer=null;
+let conversationCandidates=[];
+let lastDiagnostics=null;
+let lastPreflight=null;
+let lastUiError=null;
 
-function clone(v){return v==null?v:JSON.parse(JSON.stringify(v))}
+const clone=v=>v==null?v:JSON.parse(JSON.stringify(v));
+const esc=v=>String(v??"").replace(/[&<>"']/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
+function fmtTime(value){
+ if(!value)return "—";
+ const d=new Date(value);
+ return Number.isNaN(d.getTime())?"—":d.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit",second:"2-digit"});
+}
+function fmtGate(value){
+ if(!value)return "—";
+ const delta=Number(value)-Date.now();
+ if(delta<=0)return "due";
+ const min=Math.floor(delta/60000),sec=Math.floor((delta%60000)/1000);
+ return (min?min+"m ":"")+sec+"s";
+}
 async function command(action,payload={}){
  const response=await chrome.runtime.sendMessage({type:COMMAND_TYPE,action,payload});
  if(!response?.ok)throw Object.assign(new Error(response?.error||"Background workforce command failed"),{code:response?.code||null});
@@ -15,10 +32,12 @@ async function refresh(){
  try{
   const response=await command("snapshot");
   snapshot=response.result||response.snapshot||snapshot;
+  lastUiError=null;
   render();
   return snapshot;
  }catch(error){
-  renderError(error);
+  lastUiError=error;
+  render();
   return null;
  }
 }
@@ -26,6 +45,40 @@ function agents(executionClass=null){
  const list=snapshot?.agents||Object.values(snapshot?.state?.agents||{});
  return executionClass?list.filter(a=>a.executionClass===executionClass):list;
 }
+function diagnostics(){
+ return snapshot?.diagnostics||lastDiagnostics||null;
+}
+function diagnosticAgent(id){
+ return diagnostics()?.agents?.find?.(a=>a.id===id)||null;
+}
+async function discoverConversations(){
+ const response=await command("discoverConversations");
+ conversationCandidates=Array.isArray(response.result)?response.result:[];
+ render();
+ return conversationCandidates;
+}
+async function bindAgent(id,tabId){
+ const n=Number(tabId);
+ if(!String(tabId??"").trim()||!Number.isSafeInteger(n)||n<0)throw new Error("Choose a ChatGPT conversation first");
+ await command("bindAgentConversation",{id,tabId:n});
+ await refresh();
+}
+async function runDiagnostics(){
+ const response=await command("diagnostics");
+ lastDiagnostics=response.result||response.snapshot?.diagnostics||null;
+ render();
+ return lastDiagnostics;
+}
+async function runPreflight(){
+ if(typeof globalThis.runTitanPreflight!=="function")throw new Error("Preflight module is not available");
+ lastPreflight=await globalThis.runTitanPreflight();
+ render();
+ return lastPreflight;
+}
+async function safe(fn){
+ try{lastUiError=null;await fn()}catch(error){lastUiError=error;render()}
+}
+
 const facade={
  remote:true,
  get state(){return snapshot?.state||{}},
@@ -45,10 +98,24 @@ const facade={
  mcp:{status:()=>clone(snapshot?.mcp||{count:0,online:0,tools:0})},
  capabilities:{status:()=>clone(snapshot?.capabilities||{count:0,healthy:0,failing:0})},
  usageGovernor:{status:()=>clone(snapshot?.usage||null),clearRestriction:()=>command("usageClearRestriction")},
+ controls:{
+  pauseAgent:(id,reason)=>command("pauseAgent",{id,reason}),
+  resumeAgent:id=>command("resumeAgent",{id}),
+  quarantine:(id,reason)=>command("quarantineAgent",{id,reason}),
+  unquarantine:(id,approved=true)=>command("unquarantineAgent",{id,approved,reason:"cockpit"}),
+  pauseSquad:(squad,reason)=>command("pauseSquad",{squad,reason}),
+  resumeSquad:squad=>command("resumeSquad",{squad}),
+  pauseAll:reason=>command("pauseAll",{reason}),
+  resumeAll:()=>command("resumeAll")
+ },
  liveChat:{
   bindConversation:(workerId,conversation)=>command("bindConversation",{workerId,conversation}),
-  startCycle:(workerId,contract)=>command("startCycle",{workerId,contract})
+  bindAgentConversation:(id,tabId)=>command("bindAgentConversation",{id,tabId}),
+  discoverConversations,
+  startCycle:(workerId,contract)=>command("startCycle",{workerId,contract}),
+  submitCycleReview:payload=>command("submitCycleReview",payload)
  },
+ diagnostics:runDiagnostics,
  save:async()=>true,
  snapshot:()=>clone(snapshot),
  refresh,
@@ -71,26 +138,154 @@ function summary(){
 }
 function ensurePanel(){
  let el=document.getElementById("titan-dev-workforce");
- if(!el){el=document.createElement("div");el.id="titan-dev-workforce";document.body.appendChild(el)}
+ if(!el){el=document.createElement("section");el.id="titan-dev-workforce";document.body.appendChild(el)}
  return el;
 }
-function renderError(error){
- const el=ensurePanel();
- el.innerHTML=`<style>#titan-dev-workforce{position:fixed;right:10px;top:10px;z-index:2147483646;width:360px;background:Canvas;color:CanvasText;border:1px solid #8885;border-radius:12px;padding:10px;font:12px system-ui}</style><b>Developer Workforce</b><div>Background runtime unavailable</div><small>${String(error?.message||error)}</small><br><button id="tdw-refresh">Retry</button>`;
- el.querySelector("#tdw-refresh").onclick=()=>refresh();
+function serviceSummary(d){
+ const entries=Object.entries(d?.services||{});
+ if(!entries.length)return "No service status";
+ return entries.map(([name,s])=>`${esc(name)}:${s.available?"✓":"–"}${s.source?" "+esc(s.source):""}`).join(" · ");
+}
+function controlButtons(a){
+ const d=diagnosticAgent(a.id)||{},state=d.state||a.status,quarantined=state==="quarantined",paused=state==="paused";
+ return `<span class="agent-actions">
+  ${paused?`<button data-action="resume-agent" data-agent="${esc(a.id)}">Resume</button>`:`<button data-action="pause-agent" data-agent="${esc(a.id)}">Pause</button>`}
+  ${quarantined?`<button data-action="unquarantine-agent" data-agent="${esc(a.id)}">Unquarantine</button>`:`<button data-action="quarantine-agent" data-agent="${esc(a.id)}">Quarantine</button>`}
+ </span>`;
+}
+function bindingUi(a,d){
+ if(!["chat_worker","work_supervisor"].includes(a.executionClass))return "";
+ const bound=d?.conversation;
+ const options=conversationCandidates.map(c=>`<option value="${c.tabId}" ${bound?.tabId===c.tabId?"selected":""}>${esc(c.title||c.key)} [${c.tabId}]</option>`).join("");
+ return `<div class="binding">
+  <span>${bound?`Bound: ${esc(bound.title||bound.key)} [${bound.tabId||"?"}]`:"Unbound conversation"}</span>
+  ${conversationCandidates.length?`<select data-bind-select="${esc(a.id)}"><option value="">Choose conversation…</option>${options}</select><button data-action="bind-agent" data-agent="${esc(a.id)}">Bind</button>`:""}
+ </div>`;
+}
+function stateDetails(a,d){
+ if(a.executionClass==="chat_worker"){
+  const x=d?.chat||{};
+  return `Cycle ${esc(x.cycleId||"—")} · pass ${x.pass||0}/5 · completed ${x.completedPasses||0} · gate ${fmtGate(x.nextGateAt)} · ${esc(x.schedulerState||"—")}`;
+ }
+ if(a.executionClass==="work_supervisor"){
+  const x=d?.supervisor||{};
+  return `Review ${esc(x.reviewStatus||"idle")} · worker ${esc(x.workerId||"—")} · cycle ${esc(x.cycleId||"—")}`;
+ }
+ if(a.executionClass==="codex_builder"){
+  const x=d?.builder||{};
+  const pr=typeof x.pr==="object"?(x.pr.number||x.pr.url||"set"):(x.pr||"—");
+  const ci=typeof x.ci==="object"?(x.ci.status||x.ci.conclusion||"set"):(x.ci||"—");
+  return `Phase ${esc(x.phase||"idle")} · branch ${esc(x.branch||"—")} · PR ${esc(pr)} · CI ${esc(ci)}`;
+ }
+ const x=d?.orchestrator||{};
+ const decision=typeof x.decision==="object"?(x.decision.state||x.decision.decision||JSON.stringify(x.decision)):x.decision;
+ return `Phase ${esc(x.phase||"idle")} · decision ${esc(decision||"—")}`;
+}
+function agentCard(a){
+ const d=diagnosticAgent(a.id)||{};
+ const profiles=(d.profileIds||a.profileIds||[]).join(", ")||"none";
+ return `<article class="agent-card" data-class="${esc(a.executionClass)}">
+  <div class="agent-head"><b>${esc(a.id)}</b><span class="pill">${esc(d.state||a.status||"idle")}</span></div>
+  <div class="muted">${esc(a.executionClass)}${a.squad?` · Squad ${esc(a.squad)}`:""} · health ${esc(d.health||a.health||"unknown")}</div>
+  <div>Mission: ${esc(d.missionTitle||a.missionId||"—")}${d.missionStatus?` · ${esc(d.missionStatus)}`:""}</div>
+  <div>Profiles: ${esc(profiles)}</div>
+  <div class="runtime-line">${stateDetails(a,d)}</div>
+  ${bindingUi(a,d)}
+  <div>${controlButtons(a)}</div>
+ </article>`;
+}
+function group(title,list){
+ return `<details open><summary><b>${esc(title)}</b> · ${list.length}</summary><div class="agent-grid">${list.map(agentCard).join("")}</div></details>`;
+}
+function renderStatusBlock(){
+ const d=diagnostics(),services=d?.services||snapshot?.services||{},usage=d?.usage||snapshot?.usage||null;
+ const merge=d?.mergePressure??snapshot?.mergePressure,verification=d?.verification;
+ return `<section class="status-grid">
+  <div><b>Services</b><br><span class="muted">${serviceSummary({services})}</span></div>
+  <div><b>Native execution</b><br>Builders ${d?.nativeExecution?.buildersReady?"✓":"–"} · Orchestrator ${d?.nativeExecution?.orchestratorReady?"✓":"–"} · ${esc(d?.nativeExecution?.codexSource||"no codex source")}</div>
+  <div><b>Verification backlog</b><br>${verification?.count??0}${verification?.backlog?.length?` · ${verification.backlog.map(x=>esc(x.id+":"+x.status)).join(", ")}`:""}</div>
+  <div><b>Merge pressure</b><br>${esc(typeof merge==="object"?JSON.stringify(merge):merge||"none")}</div>
+  ${usage?`<div><b>Usage</b><br>${esc(usage.state||"normal")} · Chat ${usage.policy?.chatConcurrency??"?"}/10 · Codex ${usage.policy?.codexConcurrency??"?"}/2 · Context ${Math.round((usage.policy?.contextScale??1)*100)}%</div>`:""}
+ </section>`;
+}
+function renderPreflight(){
+ if(!lastPreflight)return "";
+ const failed=lastPreflight.checks?.filter(x=>!x.ok)||[];
+ return `<section class="result ${lastPreflight.ok?"ok":"bad"}"><b>Preflight ${lastPreflight.ok?"PASS":"FAIL"}</b> · ${failed.length} failed${failed.length?`<br><span class="muted">${failed.map(x=>esc(x.name+(x.detail?" — "+x.detail:""))).join("<br>")}</span>`:""}</section>`;
+}
+function renderError(){
+ if(!lastUiError)return "";
+ return `<section class="result bad"><b>Control error</b><br>${esc(lastUiError.code?lastUiError.code+": ":"")}${esc(lastUiError.message||lastUiError)}</section>`;
 }
 function render(){
- if(!snapshot){renderError(new Error("Waiting for background workforce runtime"));return}
- const el=ensurePanel(),s=summary(),list=agents(),services=snapshot.services||{};
- const mcp=snapshot.mcp||{count:0,online:0,tools:0},caps=snapshot.capabilities||{count:0,healthy:0,failing:0},usage=snapshot.usage||null;
- el.innerHTML=`<style>#titan-dev-workforce{position:fixed;right:10px;top:10px;z-index:2147483646;width:360px;max-height:80vh;overflow:auto;background:Canvas;color:CanvasText;border:1px solid #8885;border-radius:12px;padding:10px;font:12px system-ui;box-shadow:0 8px 30px #0003}#titan-dev-workforce .a{display:flex;justify-content:space-between;border-top:1px solid #8883;padding:3px 0}#titan-dev-workforce button{margin:2px}</style><b>Developer Workforce · ${s.total} agents</b><div>${s.armed?"ARMED":"DISARMED"}${s.emergencyStop?" · E-STOP":""} · active ${s.active}/${s.total}</div><div>Owner: ${s.owner}</div><div>Chat ${s.byClass.chat_worker||0} · Work ${s.byClass.work_supervisor||0} · Builders ${s.byClass.codex_builder||0} · Orch ${s.byClass.codex_orchestrator||0}</div><div>Services ${Object.entries(services).filter(([,v])=>v.available).map(([k])=>k).join(" · ")||"none"}<br>MCP ${mcp.online||0}/${mcp.count||0} online · ${mcp.tools||0} tools<br>Capabilities ${caps.healthy||0}/${caps.count||0} healthy · ${caps.failing||0} failing${usage?`<br>Usage ${usage.state} · Chat ${usage.policy.chatConcurrency}/10 · Codex ${usage.policy.codexConcurrency}/2 · Context ${Math.round(usage.policy.contextScale*100)}%`:``}</div><div>${list.map(a=>`<div class="a"><span>${a.id}<br><small>${a.executionClass} · ${a.status} ${a.missionId?"· "+a.missionId:""}</small></span></div>`).join("")}</div><button id="tdw-arm">${s.armed?"Disarm":"Arm"}</button><button id="tdw-stop">E-STOP</button><button id="tdw-refresh">Refresh</button>`;
- el.querySelector("#tdw-arm").onclick=async()=>{try{s.armed?await command("disarm",{reason:"cockpit"}):await command("arm")}catch(e){renderError(e)}};
- el.querySelector("#tdw-stop").onclick=async()=>{try{await command("emergencyStop",{reason:"cockpit"})}catch(e){renderError(e)}};
- el.querySelector("#tdw-refresh").onclick=()=>refresh();
+ const el=ensurePanel();
+ if(!snapshot){
+  el.innerHTML=`<style>${styles()}</style><b>Developer Workforce</b><div>Background runtime unavailable</div>${renderError()}<button id="tdw-refresh">Retry</button>`;
+  el.querySelector("#tdw-refresh").onclick=()=>refresh();
+  return;
+ }
+ const s=summary(),list=agents();
+ el.innerHTML=`<style>${styles()}</style>
+  <header><div><b>Developer Workforce · ${s.total} agents</b><div class="muted">${esc(s.owner)} · ${s.armed?"ARMED":"DISARMED"}${s.emergencyStop?" · E-STOP":""} · active ${s.active}/${s.total}</div></div></header>
+  ${renderError()}${renderPreflight()}
+  <nav class="toolbar">
+   <button data-action="${s.armed?"disarm":"arm"}">${s.armed?"Disarm":"Arm"}</button>
+   <button data-action="estop" class="danger">E-STOP</button>
+   <button data-action="pause-all">Pause all</button><button data-action="resume-all">Resume all</button>
+   <button data-action="discover">Discover conversations</button>
+   <button data-action="diagnostics">Diagnostics</button>
+   <button data-action="preflight">Preflight</button>
+   <button data-action="refresh">Refresh</button>
+  </nav>
+  <nav class="toolbar"><b>Squads:</b> A <button data-action="pause-squad" data-squad="A">Pause</button><button data-action="resume-squad" data-squad="A">Resume</button> B <button data-action="pause-squad" data-squad="B">Pause</button><button data-action="resume-squad" data-squad="B">Resume</button></nav>
+  <div class="topology">Chat ${s.byClass.chat_worker||0} · Work ${s.byClass.work_supervisor||0} · Builders ${s.byClass.codex_builder||0} · Orchestrator ${s.byClass.codex_orchestrator||0}</div>
+  ${renderStatusBlock()}
+  ${conversationCandidates.length?`<div class="result ok">Discovered ${conversationCandidates.length} ChatGPT conversations. Choose one on a Chat/Work agent card.</div>`:""}
+  ${group("Chat workers",list.filter(a=>a.executionClass==="chat_worker"))}
+  ${group("Work supervisors",list.filter(a=>a.executionClass==="work_supervisor"))}
+  ${group("Codex builders",list.filter(a=>a.executionClass==="codex_builder"))}
+  ${group("Codex orchestrator",list.filter(a=>a.executionClass==="codex_orchestrator"))}
+ `;
+ wire(el,s);
+}
+function styles(){return `
+ #titan-dev-workforce{position:fixed;right:8px;top:8px;z-index:2147483646;width:min(560px,calc(100vw - 16px));max-height:94vh;overflow:auto;background:Canvas;color:CanvasText;border:1px solid #8885;border-radius:12px;padding:10px;font:12px system-ui;box-shadow:0 8px 30px #0003}
+ #titan-dev-workforce *{box-sizing:border-box}#titan-dev-workforce header{display:flex;justify-content:space-between;gap:8px;margin-bottom:6px}
+ #titan-dev-workforce button,#titan-dev-workforce select{font:inherit;margin:2px;padding:3px 6px}
+ #titan-dev-workforce .toolbar{display:flex;align-items:center;gap:2px;flex-wrap:wrap;border-top:1px solid #8883;padding:5px 0}
+ #titan-dev-workforce .danger{font-weight:700}.muted{opacity:.72}.topology{padding:5px 0}
+ #titan-dev-workforce details{border-top:1px solid #8883;padding:5px 0}#titan-dev-workforce summary{cursor:pointer}
+ #titan-dev-workforce .agent-grid{display:grid;grid-template-columns:1fr;gap:5px;margin-top:5px}
+ #titan-dev-workforce .agent-card{border:1px solid #8884;border-radius:8px;padding:6px}
+ #titan-dev-workforce .agent-head{display:flex;justify-content:space-between}.pill{border:1px solid #8885;border-radius:999px;padding:1px 5px}
+ #titan-dev-workforce .runtime-line{margin:3px 0}.binding{display:flex;gap:3px;align-items:center;flex-wrap:wrap}.binding select{max-width:300px}
+ #titan-dev-workforce .status-grid{display:grid;gap:4px;border-top:1px solid #8883;padding:5px 0}
+ #titan-dev-workforce .result{border-radius:6px;padding:5px;margin:4px 0}.result.ok{background:color-mix(in srgb,CanvasText 8%,Canvas)}.result.bad{border:1px solid #c44}
+ `}
+function wire(el,s){
+ el.querySelectorAll("[data-action]").forEach(button=>button.addEventListener("click",()=>safe(async()=>{
+  const action=button.dataset.action,agent=button.dataset.agent,squad=button.dataset.squad;
+  if(action==="arm")await command("arm");
+  else if(action==="disarm")await command("disarm",{reason:"cockpit"});
+  else if(action==="estop"){if(confirm("Emergency stop the Titan workforce?"))await command("emergencyStop",{reason:"cockpit"})}
+  else if(action==="pause-all")await command("pauseAll",{reason:"cockpit"});
+  else if(action==="resume-all")await command("resumeAll");
+  else if(action==="pause-squad")await command("pauseSquad",{squad,reason:"cockpit"});
+  else if(action==="resume-squad")await command("resumeSquad",{squad});
+  else if(action==="pause-agent")await command("pauseAgent",{id:agent,reason:"cockpit"});
+  else if(action==="resume-agent")await command("resumeAgent",{id:agent});
+  else if(action==="quarantine-agent"){const reason=prompt("Quarantine reason", "manual cockpit quarantine");if(reason!==null)await command("quarantineAgent",{id:agent,reason})}
+  else if(action==="unquarantine-agent"){if(confirm("Unquarantine "+agent+"? This is an explicit approval."))await command("unquarantineAgent",{id:agent,approved:true,reason:"cockpit approval"})}
+  else if(action==="bind-agent"){const select=el.querySelector(`[data-bind-select="${CSS.escape(agent)}"]`);await bindAgent(agent,select?.value)}
+  else if(action==="discover")await discoverConversations();
+  else if(action==="diagnostics")await runDiagnostics();
+  else if(action==="preflight")await runPreflight();
+  else if(action==="refresh")await refresh();
+ })));
 }
 chrome.runtime.onMessage.addListener(message=>{
  if(message?.type!==STATE_TYPE)return false;
- if(message.snapshot){snapshot=message.snapshot;render()}
+ if(message.snapshot){snapshot=message.snapshot;lastDiagnostics=snapshot.diagnostics||lastDiagnostics;render()}
  return false;
 });
 refresh();

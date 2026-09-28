@@ -5,6 +5,13 @@ import {TitanProvenanceGraph,createProvenanceNode} from "./provenance.js";
 const ROOT="../../../";
 const getGlobal=name=>globalThis[name]||null;
 const clone=x=>x==null?x:JSON.parse(JSON.stringify(x));
+function requireAvailableSlot(slot){
+ if(!slot)throw new Error("Agent slot unavailable");
+ const c=slot.control||{};
+ const reason=c.emergencyStopped?"AGENT_EMERGENCY_STOPPED":c.quarantined?"AGENT_QUARANTINED":c.paused?"AGENT_PAUSED":null;
+ if(reason){const e=new Error(reason+" "+slot.id);e.code=reason;throw e}
+ return slot;
+}
 
 export class TitanWorkforceIntegration{
  constructor({state,controller,missionControl,services,capabilities=null,repositoryIntelligence=null,architectureIndex=null,usageGovernor=null,audit=()=>{}}){
@@ -52,14 +59,14 @@ export class TitanWorkforceIntegration{
  }
 
  async dispatchChatPass(workerId,action){
-  const slot=this.controller.registry.get(workerId);if(!slot||slot.executionClass!=="chat_worker")throw new Error("Chat slot required");
+  const slot=this.controller.registry.get(workerId);if(!slot||slot.executionClass!=="chat_worker")throw new Error("Chat slot required");requireAvailableSlot(slot);
   const service=this.services.require("chat");
   if(slot.conversation?.identity&&service.assertConversation)await service.assertConversation(slot.conversation.identity);
   const result=await service.send({workerId,conversation:slot.conversation,instruction:action.instruction,idempotencyKey:action.key});
   this.audit("chat-pass-sent",{workerId,missionId:slot.missionId,key:action.key});return result;
  }
  async requestWorkReview(squad,payload){
-  const id=squad==="A"?"SUPERVISOR_A":"SUPERVISOR_B",slot=this.controller.registry.get(id),service=this.services.require("work");
+  const id=squad==="A"?"SUPERVISOR_A":"SUPERVISOR_B",slot=this.controller.registry.get(id),service=this.services.require("work");requireAvailableSlot(slot);
   return service.review({supervisorId:id,conversation:slot.conversation,payload});
  }
  allowedCapabilitiesForSlot(slot){
@@ -73,7 +80,7 @@ export class TitanWorkforceIntegration{
   return capabilitiesForExecutionContext({executionClass:slot?.executionClass,profileCapabilities:profileCaps});
  }
  async dispatchCodexPacket(builderId,packet,context={}){
-  const slot=this.controller.registry.get(builderId);if(!slot||slot.executionClass!=="codex_builder")throw new Error("Codex builder required");
+  const slot=this.controller.registry.get(builderId);if(!slot||slot.executionClass!=="codex_builder")throw new Error("Codex builder required");requireAvailableSlot(slot);
   const missionId=packet?.mission?.id||packet?.mission_id||slot.missionId||null;
   const admission=this.usageGovernor?.allowCodex?.({mission:this.missionControl.get(missionId)})||{allowed:true};
   if(!admission.allowed){const e=new Error(admission.reason||"Codex usage throttled");e.code=admission.reason||"USAGE_THROTTLE";throw e}
@@ -88,7 +95,7 @@ export class TitanWorkforceIntegration{
   }finally{this.usageGovernor?.setConcurrency?.({codex:Math.max(0,(this.state.usageGovernor?.metrics?.activeCodex||1)-1)})}
  }
  async orchestrate(bundle,context={}){
-  const slot=this.controller.registry.get("ORCHESTRATOR"),missionId=bundle?.mission?.id||bundle?.mission_id||slot?.missionId||null;
+  const slot=this.controller.registry.get("ORCHESTRATOR"),missionId=bundle?.mission?.id||bundle?.mission_id||slot?.missionId||null;requireAvailableSlot(slot);
   const admission=this.usageGovernor?.allowCodex?.({mission:this.missionControl.get(missionId)})||{allowed:true};
   if(!admission.allowed){const e=new Error(admission.reason||"Codex usage throttled");e.code=admission.reason||"USAGE_THROTTLE";throw e}
   const current=this.state.usageGovernor?.metrics?.activeCodex||0;this.usageGovernor?.setConcurrency?.({codex:current+1});

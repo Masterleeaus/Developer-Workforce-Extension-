@@ -115,6 +115,8 @@ export class TitanLiveChatRuntime{
  async tickWorker(workerId,{allowDispatch=true}={}){
   const slot=this.integration.controller.registry.get(workerId);
   if(!slot||slot.executionClass!=="chat_worker"||!slot.conversation?.key)return null;
+  const control=slot.control||{};
+  if(control.emergencyStopped||control.quarantined||control.paused)return{action:"held",reason:control.emergencyStopped?"AGENT_EMERGENCY_STOPPED":control.quarantined?"AGENT_QUARANTINED":"AGENT_PAUSED",workerId};
   const worker=this.scheduler.getWorker(workerId);
   if(!worker?.missionId)return null;
   const chat=this.services.require("chat");
