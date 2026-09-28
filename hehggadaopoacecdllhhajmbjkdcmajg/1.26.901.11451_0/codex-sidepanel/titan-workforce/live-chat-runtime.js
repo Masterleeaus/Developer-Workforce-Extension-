@@ -262,7 +262,7 @@ export class TitanLiveChatRuntime{
    const cast=this.integration.castMission(event.missionId,supervisorId,{transfer:true,source:"work-review"});
    request.profile_context=cast.compiled.text;
   }else{
-   this.integration.controller.assignMission(event.missionId,supervisorId,{transfer:true,expectedExecutionClass:"work_supervisor",source:"work-review"});
+   this.missionControl.assign(event.missionId,supervisorId,{transfer:true,expectedExecutionClass:"work_supervisor",source:"work-review"});
   }
   supervisor.status="reviewing";
   supervisor.updatedAt=Date.now();
