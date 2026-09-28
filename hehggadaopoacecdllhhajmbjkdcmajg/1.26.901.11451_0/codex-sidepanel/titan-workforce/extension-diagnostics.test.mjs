@@ -233,3 +233,28 @@ function fakeRoot({
 }
 
 console.log("extension diagnostics tests passed");
+
+
+{
+ const root=fakeRoot();
+ const good=root.chrome.runtime.sendMessage.bind(root.chrome.runtime);
+ let first=true;
+ root.chrome.runtime.sendMessage=async message=>{
+  if(first){first=false;throw new Error("service worker restarting")}
+  return good(message);
+ };
+ const failed=await runExtensionDiagnostics({root,chromeApi:root.chrome,fetchImpl:root.fetch});
+ assert.equal(failed.ok,false);
+ const recovered=await runExtensionDiagnostics({root,chromeApi:root.chrome,fetchImpl:root.fetch});
+ assert.equal(recovered.ok,true);
+ console.log("ok - service-worker restart recovery does not retain stale failure");
+}
+
+{
+ const fs=await import("node:fs");
+ const source=fs.readFileSync(new URL("./sidepanel-client.js",import.meta.url),"utf8");
+ assert(source.includes("runTitanExtensionDiagnostics"));
+ assert(source.includes("Extension runtime"));
+ assert(source.includes("extensionRuntime"));
+ console.log("ok - sidepanel exposes extension diagnostics");
+}
