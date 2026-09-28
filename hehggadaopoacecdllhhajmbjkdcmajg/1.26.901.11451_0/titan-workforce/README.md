@@ -69,3 +69,22 @@ node titan-workforce/chat-five-pass-scheduler.test.js
 ```
 
 The suite uses a simulated clock and never waits five real minutes.
+
+## Legacy migration and mission guards
+
+`chat-five-pass-integration.js` adds two integration seams:
+
+- `migrateLegacyFiveByFive(legacyState)` maps useful W1–W5 runtime state into A1–A5 and leaves B1–B5 fresh.
+- `GuardedChatFivePassScheduler` accepts an `advanceGuard(worker, dispatch)` callback. Agent 4 should connect the existing mission-budget and anti-loop evaluator here so WP2 cannot bypass those controls.
+
+The guard runs immediately before dispatch. A denied verdict blocks the worker and emits the normal blocked audit event rather than silently continuing.
+
+## Migration notes
+
+Recommended v3.0.34 migration:
+
+1. Preserve existing conversation identity, mission/cycle IDs, pass count, queue, last dispatch, next due time, health, pause/block state, action keys and recent audit history.
+2. Map legacy `W1`–`W5` to `A1`–`A5`.
+3. Initialize `B1`–`B5` as fresh `chat_worker` slots.
+4. Preserve the existing canonical send ledger outside this package and use its result together with WP2's deterministic pass key.
+5. Restore through the canonical workforce state store, then reconcile live browser generation state before allowing the next gate.
