@@ -4,7 +4,7 @@ const plain=x=>!!x&&typeof x==="object"&&!Array.isArray(x);
 const clone=x=>x==null?x:JSON.parse(JSON.stringify(x));
 
 export function createAgentControlState(){
- return {paused:false,pauseReason:null,quarantined:false,quarantineReason:null,emergencyStopped:false,emergencyReason:null,preEmergency:null};
+ return {paused:false,pauseReason:null,quarantined:false,quarantineReason:null,emergencyStopped:false,preEmergency:null};
 }
 
 export function ensureAgentControlState(slot){
@@ -25,7 +25,7 @@ export function createAgentSlot(id){
  return {id,executionClass:SLOT_CLASS[id],squad:SLOT_SQUAD[id]||null,status:"idle",missionId:null,profileIds:[],conversation:null,health:"unknown",control:createAgentControlState(),createdAt:now(),updatedAt:now()};
 }
 export function createWorkforceState(){
- return {schemaVersion:WORKFORCE_SCHEMA_VERSION,agents:Object.fromEntries(SLOT_IDS.map(id=>[id,createAgentSlot(id)])),missions:{},squads:{A:{status:"idle"},B:{status:"idle"}},controls:{armed:false,emergencyStop:false,emergencyReason:null,requiresReconciliation:false,lastEmergencyAt:null},provenance:{},createdAt:now(),updatedAt:now()};
+ return {schemaVersion:WORKFORCE_SCHEMA_VERSION,agents:Object.fromEntries(SLOT_IDS.map(id=>[id,createAgentSlot(id)])),missions:{},squads:{A:{status:"idle"},B:{status:"idle"}},controls:{armed:false,emergencyStop:false,requiresReconciliation:false,lastEmergencyAt:null},provenance:{},createdAt:now(),updatedAt:now()};
 }
 
 function rawRecoverySnapshot(raw){
