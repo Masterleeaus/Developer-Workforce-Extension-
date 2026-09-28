@@ -1,0 +1,26 @@
+name: Package Developer Workforce Extension
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/package-extension.yml"
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Package extension
+        run: |
+          set -euo pipefail
+          ROOT="hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0"
+          test -f "$ROOT/manifest.json"
+          mkdir -p dist
+          (cd "$ROOT" && zip -qr "$GITHUB_WORKSPACE/dist/Developer-Workforce-Extension-v4.0.0.zip" .)
+          unzip -t dist/Developer-Workforce-Extension-v4.0.0.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Developer-Workforce-Extension-v4.0.0
+          path: dist/Developer-Workforce-Extension-v4.0.0.zip
+          if-no-files-found: error
