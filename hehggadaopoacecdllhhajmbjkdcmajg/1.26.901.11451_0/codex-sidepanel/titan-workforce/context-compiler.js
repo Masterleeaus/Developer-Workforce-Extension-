@@ -9,7 +9,7 @@ const DEFAULT_LIMITS=Object.freeze({
  codex_orchestrator:26000
 });
 function stringify(x){return typeof x==="string"?x:JSON.stringify(x,null,2)}
-function uniq(a){return [...new Set((a||[]).filter(Boolean))}
+function uniq(a){return [...new Set((a||[]).filter(Boolean))]}
 function compactText(value,max){
  const s=stringify(value||"").trim();
  if(s.length<=max)return s;
