@@ -4,6 +4,7 @@ on:
     paths:
       - "hehggadaopoacecdllhhajmbjkdcmajg/**"
       - ".github/workflows/developer-workforce-regression.yml"
+      - "hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/control-selftest.mjs"
   workflow_dispatch:
 permissions:
   contents: read
