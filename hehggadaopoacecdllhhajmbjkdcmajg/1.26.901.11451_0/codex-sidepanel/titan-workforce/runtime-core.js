@@ -13,6 +13,9 @@ import {createConversationService} from "./conversation-service.js";
 import {TitanWorkforceControls} from "./controls.js";
 import {TitanMergeController} from "./merge-controller.js";
 import {TitanApprovalStore,persistApprovedScopeExpansion} from "./approvals.js";
+import {createHighImpactAuthorizer} from "./high-impact-policy.js";
+import {TitanCredentialBroker} from "./credential-broker.js";
+import {TitanRuntimeVerifierRegistry,verifyMissionRuntime} from "./runtime-verifiers.js";
 import {createAuthoritativeChangedPathResolver} from "./changed-path-evidence.js";
 import {enforceScopedCodexBuildCapability} from "./scoped-codex-capability.js";
 import {TitanLiveChatRuntime} from "./live-chat-runtime.js";
@@ -68,6 +71,9 @@ export async function createTitanWorkforceRuntime({
  const executionCapabilities=installExecutionCapabilities({services,broker:capabilities,audit});
  executionCapabilities.sync();
  const approvals=new TitanApprovalStore(state,{audit});
+ const credentials=new TitanCredentialBroker(state,{audit,approvalStore:approvals});
+ const runtimeVerifiers=new TitanRuntimeVerifierRegistry({audit});
+ capabilities.authorize=createHighImpactAuthorizer({approvalStore:approvals,audit});
  const installScopeGuard=()=>enforceScopedCodexBuildCapability(capabilities,{
   getChangedPaths:createAuthoritativeChangedPathResolver(capabilities,{audit}),
   audit,
@@ -108,11 +114,12 @@ export async function createTitanWorkforceRuntime({
  eventTarget?.addEventListener?.("titan-workforce:merge-complete",onMergeIndex);
 
  const api={
-  state,controller,missions,services,capabilities,mcp,approvals,executionCapabilities,
+  state,controller,missions,services,capabilities,mcp,approvals,credentials,runtimeVerifiers,executionCapabilities,
   integration,architecture,repositoryIntelligence,missionCompiler,contextCompiler,usageGovernor,liveChat,controls,mergeController,
   stopNativeEventBridge,
   stopCapabilityResync:()=>eventTarget?.removeEventListener?.("titan:stock-native-service",resyncCapabilities),
   stopRepositoryIndexRefresh:()=>eventTarget?.removeEventListener?.("titan-workforce:merge-complete",onMergeIndex),
+  verifyMissionRuntime:async missionId=>{const mission=missions.get(missionId);if(!mission)throw new Error("Unknown mission "+missionId);return verifyMissionRuntime(mission,{services,registry:runtimeVerifiers,audit})},
   save,
   dispose(){
    liveChat.stop();

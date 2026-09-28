@@ -1,0 +1,30 @@
+name: Issue 34 Runtime Security Policy
+
+on:
+  push:
+    branches:
+      - agent-1/issue-34-runtime-secrets-policy
+  pull_request:
+    paths:
+      - "hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/**"
+      - ".github/workflows/issue-34-runtime-security.yml"
+
+jobs:
+  node-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Runtime security policy tests
+        run: node runtime-security-policy.test.mjs
+      - name: Core regression
+        run: node core-selftest.mjs
+      - name: Execution capability regression
+        run: node execution-capabilities.test.mjs
+      - name: Background runtime regression
+        run: node background-runtime.test.mjs

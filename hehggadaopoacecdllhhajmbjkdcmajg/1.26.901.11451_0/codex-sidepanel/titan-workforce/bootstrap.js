@@ -14,6 +14,9 @@ import {TitanWorkforceControls} from "./controls.js";
 import {TitanMergeController} from "./merge-controller.js";
 import {installEngineeringCockpit} from "./cockpit.js";
 import {TitanApprovalStore,persistApprovedScopeExpansion} from "./approvals.js";
+import {createHighImpactAuthorizer} from "./high-impact-policy.js";
+import {TitanCredentialBroker} from "./credential-broker.js";
+import {TitanRuntimeVerifierRegistry,verifyMissionRuntime} from "./runtime-verifiers.js";
 import {createAuthoritativeChangedPathResolver} from "./changed-path-evidence.js";
 import {enforceScopedCodexBuildCapability} from "./scoped-codex-capability.js";
 import {TitanLiveChatRuntime} from "./live-chat-runtime.js";
@@ -41,6 +44,9 @@ async function load(){
  const executionCapabilities=installExecutionCapabilities({services,broker:capabilities,audit});
  executionCapabilities.sync();
  const approvals=new TitanApprovalStore(state,{audit});
+ const credentials=new TitanCredentialBroker(state,{audit,approvalStore:approvals});
+ const runtimeVerifiers=new TitanRuntimeVerifierRegistry({audit});
+ capabilities.authorize=createHighImpactAuthorizer({approvalStore:approvals,audit});
  const installScopeGuard=()=>enforceScopedCodexBuildCapability(capabilities,{getChangedPaths:createAuthoritativeChangedPathResolver(capabilities,{audit}),audit,requestApproval:req=>approvals.request(req),persistScopeExpansion:persistApprovedScopeExpansion({state,missionControl:missions,audit})});
  installScopeGuard();
  const resyncCapabilities=()=>queueMicrotask(()=>{executionCapabilities.sync();installScopeGuard()});
@@ -57,7 +63,7 @@ async function load(){
  const controls=new TitanWorkforceControls(controller,audit);const mergeController=new TitanMergeController({audit});
  const onMergeIndex=event=>{const d=event.detail||{};if(!d.repository||!d.nextCommit||!Array.isArray(d.changes))return;try{repositoryIntelligence.applyChanges({repository:d.repository,baseCommit:d.baseCommit,nextCommit:d.nextCommit,changes:d.changes});save().catch(()=>{})}catch(error){audit("repository-index-refresh-failed",{repository:d.repository,nextCommit:d.nextCommit,message:String(error?.message||error)})}};
  window.addEventListener("titan-workforce:merge-complete",onMergeIndex);
- const api={state,controller,missions,services,capabilities,mcp,approvals,executionCapabilities,integration,architecture,repositoryIntelligence,missionCompiler,contextCompiler,liveChat,controls,mergeController,stopNativeEventBridge,stopCapabilityResync:()=>window.removeEventListener("titan:stock-native-service",resyncCapabilities),stopRepositoryIndexRefresh:()=>window.removeEventListener("titan-workforce:merge-complete",onMergeIndex),save};
+ const api={state,controller,missions,services,capabilities,mcp,approvals,credentials,runtimeVerifiers,verifyMissionRuntime:async missionId=>{const mission=missions.get(missionId);if(!mission)throw new Error("Unknown mission "+missionId);return verifyMissionRuntime(mission,{services,registry:runtimeVerifiers,audit})},executionCapabilities,integration,architecture,repositoryIntelligence,missionCompiler,contextCompiler,liveChat,controls,mergeController,stopNativeEventBridge,stopCapabilityResync:()=>window.removeEventListener("titan:stock-native-service",resyncCapabilities),stopRepositoryIndexRefresh:()=>window.removeEventListener("titan-workforce:merge-complete",onMergeIndex),save};
  globalThis.TitanCapabilityBroker=capabilities;
  globalThis.TitanMcpRegistry=mcp;
  globalThis.TitanDeveloperWorkforce=api;
