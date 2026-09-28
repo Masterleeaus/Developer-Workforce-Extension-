@@ -19,3 +19,20 @@ The v4 runtime prefers real stock/native providers when they are published throu
 A later stock-native service event replaces the fallback in-place. `services.status()` reports the active provider source for each service.
 
 Private/inaccessible GitHub repositories fail closed unless a native authenticated provider is available.
+
+
+## Observability, metrics and replay
+
+The v4 runtime exposes `api.observability` as the canonical append-only mission-event layer. It does not replace mission, agent, verification or provenance state.
+
+Canonical events include mission creation/profile casting, Chat pass dispatch/completion, supervisor review, approved deltas, builder/Codex/orchestrator activity, CI/runtime/acceptance verification, mission completion, and BLOCKED/REPAIR/RESEARCH/VERIFY transitions.
+
+Public runtime helpers:
+- `api.observability.record(type, data, meta)` — append an explicit canonical event.
+- `api.metrics()` — derive throughput, utilization, pass/cycle duration, review/repair/CI failure rates, MCP/tool failures, Codex completion, context/retry/stale-work and verification metrics without reading conversations.
+- `api.replayEvents({ strict })` — reconstruct mission execution state from events and detect duplicate/impossible transitions.
+- `api.exportDiagnostics({ missionId, eventLimit })` — export a compact `titan-workforce-diagnostics/v1` bundle containing event references, derived metrics and dry-run replay state.
+
+Replay is deterministic and side-effect free: it never calls Git, MCP, browser, runtime, Codex or other execution services. Events retain bounded provenance/reference fields rather than full prompt/transcript payloads.
+
+The existing free-form `auditLog` remains available for operational debugging; canonical events are derived from stable audit/lifecycle seams and stored separately in `state.eventLog`.
