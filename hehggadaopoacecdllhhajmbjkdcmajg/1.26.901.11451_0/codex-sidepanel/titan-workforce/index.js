@@ -30,3 +30,5 @@ export * from "./runtime-verifiers.js";
 export * from "./credential-broker.js";
 export * from "./high-impact-policy.js";
 export * from "./maintenance.js";
+
+export * from "./cockpit-diagnostics.js";
