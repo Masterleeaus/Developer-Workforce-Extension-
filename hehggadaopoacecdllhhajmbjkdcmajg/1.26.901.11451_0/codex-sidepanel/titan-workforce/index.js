@@ -1,4 +1,5 @@
 export * from "./constants.js";
+export * from "./slot-id-adapter.js";
 export * from "./state.js";
 export * from "./migrations.js";
 export * from "./registry.js";
