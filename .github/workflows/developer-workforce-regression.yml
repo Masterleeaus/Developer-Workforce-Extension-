@@ -39,5 +39,7 @@ jobs:
               q=(p/src).resolve()
               if not q.exists(): missing.append((src,str(q)))
           if missing: raise SystemExit("Missing script references: "+repr(missing))
+          if 'titan-5x5-supervisor.js' in html: raise SystemExit("Legacy 5x5 supervisor must not be active in v4 side panel")
+          if 'titan-5x5-selftest.js' in html: raise SystemExit("Legacy 5x5 self-test must not be active in v4 side panel")
           print("side-panel references PASS")
           PY
