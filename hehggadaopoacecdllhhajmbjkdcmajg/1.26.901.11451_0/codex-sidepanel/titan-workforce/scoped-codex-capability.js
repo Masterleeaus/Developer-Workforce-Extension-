@@ -8,7 +8,7 @@ export function createScopedCodexBuildHandler(rawBuild,{getChangedPaths,audit=()
   let check=verifyDiffScope(changed,scope);
   audit("scope-lock-checked",{packetId:packet?.id||null,builderId,missionId:packet?.mission?.id||packet?.mission_id,originalScope:scope,changedPaths:changed,violations:check.violations});
   if(!check.ok){
-   const request=requireScopeExpansion({id:packet?.mission?.id||packet?.mission_id,scopePaths:scope},changed);
+   const request=requireScopeExpansion({id:packet?.mission?.id||packet?.mission_id,scopePaths:scope},changed,{packetId:packet?.id||null,builderId});
    const approval=await requestApproval({...request,packetId:packet?.id||null,builderId});
    if(!approval?.approved&&approval?.status!=="approved"){const e=new Error(approval?.status==="pending"?"Scope expansion approval pending":"Codex diff violates mission scope");e.code=approval?.status==="pending"?"SCOPE_APPROVAL_PENDING":"SCOPE_LOCK_VIOLATION";e.approvalId=approval?.id||null;e.scope=check;throw e}
    await persistScopeExpansion({request,approval,packet,builderId,changedPaths:changed});
