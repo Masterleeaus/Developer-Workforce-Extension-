@@ -65,8 +65,8 @@ function render(sections,limit){
 }
 
 export class TitanContextCompiler{
- constructor({profiles=null,contextProvider=null,provenance=null,audit=()=>{},limits={}}={}){
-  this.profiles=profiles;this.contextProvider=contextProvider;this.provenance=provenance;this.audit=audit;
+ constructor({profiles=null,contextProvider=null,provenance=null,usageGovernor=null,audit=()=>{},limits={}}={}){
+  this.profiles=profiles;this.contextProvider=contextProvider;this.provenance=provenance;this.usageGovernor=usageGovernor;this.audit=audit;
   this.limits={...DEFAULT_LIMITS,...limits};
  }
  profileContext(mission,executionClass){
@@ -82,7 +82,8 @@ export class TitanContextCompiler{
  compile(executionClass,input={}){
   if(!EXECUTION_CLASSES.includes(executionClass))throw new Error("Unknown execution class "+executionClass);
   const mission=input.mission;if(!mission?.id)throw new Error("Mission is required");
-  const limit=Math.max(2000,Number(input.limit||this.limits[executionClass]||12000));
+  const baseLimit=Math.max(2000,Number(input.limit||this.limits[executionClass]||12000));
+  const limit=Math.max(2000,Number(this.usageGovernor?.contextLimit?.(baseLimit)||baseLimit));
   const seen=new Set(),sections=[];
   const {context,profile}=this.baseContext(mission,executionClass,input);
   addSection(sections,seen,"Mission",missionSummary(mission),4500);
@@ -129,7 +130,8 @@ export class TitanContextCompiler{
    provenance:clone(provenance),sections:sections.map(x=>({title:x.title,key:x.key})),
    ...rendered,limit
   };
-  this.audit("context-compiled",{missionId:mission.id,executionClass,characters:result.characters,truncated:result.truncated,sections:result.sections.map(x=>x.title)});
+  this.usageGovernor?.record?.("context",{missionId:mission.id,characters:result.characters});
+  this.audit("context-compiled",{missionId:mission.id,executionClass,characters:result.characters,truncated:result.truncated,sections:result.sections.map(x=>x.title),baseLimit,governedLimit:limit});
   return result;
  }
  forChat(mission,input={}){return this.compile("chat_worker",{...input,mission})}
