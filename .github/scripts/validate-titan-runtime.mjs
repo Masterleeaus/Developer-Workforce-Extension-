@@ -67,7 +67,7 @@ export function validateFile(file){
 function negativeSelfTest(){
  const dir=mkdtempSync(join(tmpdir(),"titan-runtime-validator-"));
  try{
-  const invalid=join(dir,"invalid.js");writeFileSync(invalid,"export const = ;\n");
+  const invalid=join(dir,"invalid.js");writeFileSync(invalid,"const x = ;\n");
   if(checkSyntax(invalid).ok)throw new Error("negative syntax fixture was not rejected");
   const importer=join(dir,"importer.mjs");writeFileSync(importer,'import "./missing.js";\nexport const ok=true;\n');
   const missing=validateFile(importer).some(x=>x.kind==="missing-import");
