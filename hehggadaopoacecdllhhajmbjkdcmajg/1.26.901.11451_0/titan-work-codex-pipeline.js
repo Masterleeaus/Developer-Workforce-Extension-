@@ -89,11 +89,11 @@
       id: requiredString(mission.id || mission.mission_id, "mission.id"),
       title: String(mission.title || ""),
       goal: String(mission.goal || ""),
-      repository: String(mission.repository || ""),
+      repository: String(mission.repository || mission.repo || ""),
       branch: String(mission.branch || mission.branch_constraint || ""),
       constraints: arr(mission.constraints),
-      acceptance_criteria: arr(mission.acceptance_criteria || mission.acceptanceCriteria),
-      runtime_requirements: arr(mission.runtime_requirements || mission.runtimeRequirements),
+      acceptance_criteria: arr(mission.acceptance_criteria || mission.acceptanceCriteria || mission.acceptance),
+      runtime_requirements: arr(mission.runtime_requirements || mission.runtimeRequirements || mission.verification_requirements || mission.verificationRequirements),
       metadata: clone(mission.metadata || {})
     };
   }
@@ -206,6 +206,28 @@
     if (squad === "A") return "supervisor-a";
     if (squad === "B") return "supervisor-b";
     throw new Error("unable to route Work supervisor without squad A/B");
+  }
+
+  function adaptChatSupervisorReviewEvent(event, mission) {
+    assert(event && typeof event === "object", "chat supervisor-review event is required");
+    assert(event.type === "supervisor_review_required", "unexpected chat event type");
+    const detail = event.detail || {};
+    const completedPasses = arr(detail.completedPasses);
+    assert(completedPasses.length === 5, "supervisor review requires exactly five completed Chat passes");
+    return createSupervisorReviewRequest({
+      mission: mission,
+      worker: event.workerId,
+      squad: event.squad,
+      cycle: event.cycle || 1,
+      passes_completed: completedPasses.length,
+      chat_cycle: {
+        mission_id: event.missionId || detail.missionId || null,
+        cycle_id: event.cycleId || detail.cycleId || null,
+        completed_passes: clone(completedPasses),
+        event_at: event.at || null
+      },
+      provenance: [{ kind: "chat-event", id: [event.missionId || "", event.cycleId || "", event.workerId || "", "supervisor_review_required"].join(":") }]
+    });
   }
 
   function createSupervisorReviewRequest(input) {
@@ -496,6 +518,7 @@
     registerAdapters,
     getAdapters,
     normalizeMission,
+    adaptChatSupervisorReviewEvent,
     chooseWorkSupervisor,
     createSupervisorReviewRequest,
     createCycleReview,
