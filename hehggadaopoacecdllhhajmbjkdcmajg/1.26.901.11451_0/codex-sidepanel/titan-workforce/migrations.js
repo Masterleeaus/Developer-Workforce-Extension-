@@ -60,7 +60,7 @@ function mapApprovals(approvals){
 }
 
 function addMissionIfUsable(next,raw,{status,source}){
- const m=legacyMission(raw,{status,source});
+ const m=legacyMission(raw,{assignedAgent:null,status,source});
  if(!m)return null;
  if(!next.missions[m.id])next.missions[m.id]=m;
  return next.missions[m.id];
@@ -129,7 +129,10 @@ export function migrateLegacy5x5(legacy={}){
   migrationVersion:2,
   migratedAt,
   rawState:source,
-  compatibility
+  compatibility,
+  reviewQueue:compatibility.review.queue,
+  auditLog:compatibility.auditLog,
+  sendLedger:compatibility.sendLedger
  };
  next.controls.armed=false;
  next.controls.emergencyStop=false;
