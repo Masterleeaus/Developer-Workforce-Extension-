@@ -163,7 +163,10 @@
     const out=[];for(const part of p.split("/")){if(!part||part===".")continue;assert(part!=="..","scope path traversal is not allowed");if(allowGlob===false)assert(!part.includes("*"),"changed file path may not contain glob");assert(!(part.includes("**")&&part!=="**"),"double-star glob must occupy a whole segment");out.push(part)}
     assert(out.length>0,"scope path resolves to empty");return out.join("/");
   }
-  function escapeScopeRegex(s){return s.replace(/[.+^$(){}|[\]\\]/g,"\\  function compileApprovedImplementationDelta(input, options) {")}
+  function escapeScopeRegex(s){
+    const special=new Set([".","+","^","$","(",")","{","}","|","[","]","\\"]);
+    let out="";for(const ch of String(s))out+=special.has(ch)?"\\"+ch:ch;return out;
+  }
   function scopeRegex(scope) {
     const p=normalizeScopePath(scope,true);
     if(!p.includes("*"))return new RegExp("^"+escapeScopeRegex(p)+"(?:/.*)?$");
