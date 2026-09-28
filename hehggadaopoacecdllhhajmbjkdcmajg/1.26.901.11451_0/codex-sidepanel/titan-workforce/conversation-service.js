@@ -32,9 +32,27 @@ export function createConversationService(){
    const ok=await exec(conversation.tabId,sendPrompt,[instruction]);if(!ok)throw new Error("Prompt composer unavailable");
    return {ok:true,idempotencyKey,at:Date.now()};
   },
-  async review({conversation,payload}){
+  async review({conversation,payload,timeoutMs=180000,pollMs=750}){
    const instruction=typeof payload==="string"?payload:JSON.stringify(payload,null,2);
-   return this.send({conversation,instruction,idempotencyKey:payload?.reviewId||payload?.id||null});
+   const before=await this.observe(conversation);
+   await this.send({conversation,instruction,idempotencyKey:payload?.reviewId||payload?.review_id||payload?.id||null});
+   const started=Date.now();
+   while(Date.now()-started<timeoutMs){
+    await new Promise(resolve=>setTimeout(resolve,pollMs));
+    const current=await this.observe(conversation);
+    if((current?.assistantCount||0)>(before?.assistantCount||0)&&!current?.generating&&String(current?.lastText||"").trim()){
+     const text=String(current.lastText).trim();
+     let parsed=null;
+     const fenced=text.match(/```(?:json)?\\s*([\\s\\S]*?)```/i);
+     const candidate=(fenced?.[1]||text).trim();
+     try{parsed=JSON.parse(candidate)}catch{
+      const object=candidate.match(/\\{[\\s\\S]*\\}/);
+      if(object)try{parsed=JSON.parse(object[0])}catch{}
+     }
+     return {ok:true,text,parsed,assistantCount:current.assistantCount,at:Date.now()};
+    }
+   }
+   const e=new Error("Work supervisor response timed out");e.code="WORK_RESPONSE_TIMEOUT";throw e;
   }
  };
 }
