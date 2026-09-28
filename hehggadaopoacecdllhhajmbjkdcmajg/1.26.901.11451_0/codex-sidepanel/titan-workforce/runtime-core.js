@@ -24,6 +24,7 @@ import {TitanRepositoryIntelligence} from "./repository-intelligence.js";
 import {TitanMissionCompiler} from "./mission-compiler.js";
 import {TitanContextCompiler} from "./context-compiler.js";
 import {TitanUsageGovernor} from "./usage-governor.js";
+import {TitanLifecycleManager} from "./maintenance.js";
 
 export const WORKFORCE_STORAGE_KEY="titanDeveloperWorkforceV4";
 export const LEGACY_STORAGE_KEY="titan5x5.state.v2";
@@ -96,6 +97,15 @@ export async function createTitanWorkforceRuntime({
  if(startTimer)liveChat.start();
  const controls=new TitanWorkforceControls(controller,audit);
  const mergeController=new TitanMergeController({audit});
+ const lifecycle=new TitanLifecycleManager({
+  state,
+  missionControl:missions,
+  registry:controller.registry,
+  mergeController,
+  audit,
+  save,
+  requestApproval:req=>approvals.request(req)
+ });
  const onMergeIndex=event=>{
   const d=event?.detail||{};
   if(!d.repository||!d.nextCommit||!Array.isArray(d.changes))return;
@@ -115,7 +125,7 @@ export async function createTitanWorkforceRuntime({
 
  const api={
   state,controller,missions,services,capabilities,mcp,approvals,credentials,runtimeVerifiers,executionCapabilities,
-  integration,architecture,repositoryIntelligence,missionCompiler,contextCompiler,usageGovernor,liveChat,controls,mergeController,
+  integration,architecture,repositoryIntelligence,missionCompiler,contextCompiler,usageGovernor,liveChat,controls,mergeController,lifecycle,
   stopNativeEventBridge,
   stopCapabilityResync:()=>eventTarget?.removeEventListener?.("titan:stock-native-service",resyncCapabilities),
   stopRepositoryIndexRefresh:()=>eventTarget?.removeEventListener?.("titan-workforce:merge-complete",onMergeIndex),
@@ -148,6 +158,8 @@ export function workforceRuntimeSnapshot(api){
   mcp:api.mcp?.status?.()||null,
   capabilities:api.capabilities?.status?.()||null,
   usage:api.usageGovernor?.status?.()||null,
+  lifecycle:clone(api.state.lifecycle||null),
+  mergePressure:api.mergeController?.state||null,
   readiness:api.integration.readiness()
  });
 }
