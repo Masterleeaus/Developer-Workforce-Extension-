@@ -43,6 +43,8 @@ jobs:
         run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/mission-context-compiler.test.mjs
       - name: Usage governor
         run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/usage-governor.test.mjs
+      - name: Workforce observability and replay
+        run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/observability.test.mjs
       - name: WP4 control-state safety
         run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/control-selftest.mjs
       - name: Stock native bridge and fallback services
