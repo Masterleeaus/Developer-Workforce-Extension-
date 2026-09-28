@@ -1,6 +1,6 @@
 import fs from "node:fs";import path from "node:path";import {spawnSync} from "node:child_process";import {fileURLToPath} from "node:url";
 const here=path.dirname(fileURLToPath(import.meta.url)),root=path.resolve(here,".."),repo=path.resolve(root,"..","..");
-const checks=[
+const checks=[\n ["fresh-install-upgrade",["node",path.join(root,"tests/install-upgrade-acceptance.mjs")],true],
  ["package-integrity",["node",path.join(root,"tests/package-integrity.test.js")],true],
  ["wp4-core",["node",path.join(root,"codex-sidepanel/titan-workforce/core-selftest.mjs")],true],
  ["autonomous-chat-work",["node",path.join(root,"codex-sidepanel/titan-workforce/live-chat-runtime.test.mjs")],true],
