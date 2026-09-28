@@ -94,7 +94,7 @@ function makeRuntime({reviewResult}={}){
     async dispatchChatPass(){return{ok:true}}
   };
   const runtime=new TitanLiveChatRuntime({
-    state,integration,missionControl,services:{require:()=>({})},
+    state,integration,missionControl,services:{require:()=>({observe:async()=>({assistantCount:0,generating:false,lastText:""})})},
     audit:(type,data)=>audits.push({type,data}),
     save:async()=>{},
     eventTarget
@@ -129,7 +129,7 @@ const event={type:"supervisor_review_required",workerId:"A1",squad:"A",missionId
     state:h.state,
     integration:h.integration,
     missionControl:h.missionControl,
-    services:{require:()=>({})},
+    services:{require:()=>({observe:async()=>({assistantCount:0,generating:false,lastText:""})})},
     audit:()=>{},
     save:async()=>{},
     eventTarget:h.eventTarget
