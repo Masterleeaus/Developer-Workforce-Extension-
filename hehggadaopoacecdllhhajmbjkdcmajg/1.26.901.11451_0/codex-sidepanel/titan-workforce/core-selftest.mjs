@@ -116,6 +116,8 @@ let corruptReplayBlocked=false;try{corruptGraph.ancestry("ca")}catch(e){corruptR
 
 
 import {TitanExecutionServices} from "./execution-services.js";
+import {agentSummaryText} from "./cockpit.js";
+import {readFileSync} from "node:fs";
 import {TitanWorkforceController,validateAssignmentInvariants} from "./controller.js";
 import {TitanWorkforceControls} from "./controls.js";
 import {TitanWorkforceIntegration} from "./integration.js";
@@ -125,6 +127,14 @@ import {classifyCIFailure,recoveryRoute} from "./ci-failures.js";
 import {createVerificationState,recordGate,verificationDecision} from "./verification-plane.js";
 import {importLegacyVerification,evaluateBooleanEvidence} from "./verification-adapter.js";
 const services=new TitanExecutionServices();services.register("github",{capabilities:["truth"]});assert(services.available("github"),"service registry");
+
+const hostileMissionId='<img src=x onerror="globalThis.__cockpitPwned=true">';
+const hostileSummary=agentSummaryText({executionClass:"chat_worker",status:"assigned",missionId:hostileMissionId});
+assert(hostileSummary.includes(hostileMissionId),"hostile mission id must remain literal text in summary");
+const cockpitSource=readFileSync(new URL("./cockpit.js",import.meta.url),"utf8");
+assert(!cockpitSource.includes(".innerHTML"),"cockpit must not render runtime data through innerHTML");
+assert(cockpitSource.includes(".textContent"),"cockpit should render runtime data through textContent");
+
 
 assert(conversationIdentity("https://chatgpt.com/c/abc-123")?.conversationId==="abc-123","supported ChatGPT conversation identity");
 assert(conversationIdentity("https://chatgpt.com/c/abc-123?model=test")?.key==="https://chatgpt.com/c/abc-123","conversation key should ignore query parameters");
