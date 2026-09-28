@@ -258,7 +258,78 @@ export class TitanLiveChatRuntime{
   });
   this.persistSnapshot();
   await this.save();
-  return result;
+  return await this.consumeSupervisorDecision({event,request,result,supervisorId});
+ }
+
+ normalizeCycleReview({event,result}){
+  const pipeline=this.integration.pipelineApi||globalThis.TitanWorkCodexPipeline;
+  if(!pipeline?.createCycleReview)throw new Error("WP3 CycleReview factory unavailable");
+  const raw=result?.cycleReview||result?.review||result;
+  return pipeline.createCycleReview({
+   mission:this.integration.normalizePipelineMission(this.missionControl.get(event.missionId)),
+   worker:event.workerId,squad:event.squad||this.integration.squadForWorker(event.workerId),
+   cycle:Number(String(event.cycleId||"1").match(/\\d+/)?.[0]||1),
+   passes_completed:event.detail?.completedPasses?.length||5,
+   next_decision:raw?.next_decision||raw?.nextDecision,
+   approved_findings:raw?.approved_findings||raw?.approvedFindings,
+   rejected_findings:raw?.rejected_findings||raw?.rejectedFindings,
+   unresolved_questions:raw?.unresolved_questions||raw?.unresolvedQuestions,
+   architecture_implications:raw?.architecture_implications||raw?.architectureImplications,
+   dependencies:raw?.dependencies,evidence_quality:raw?.evidence_quality||raw?.evidenceQuality,
+   redirect:raw?.redirect,blocker:raw?.blocker
+  });
+ }
+
+ nextFiveQueue(review,result){
+  const q=result?.next_queue||result?.nextQueue||result?.queue;
+  if(Array.isArray(q)&&q.length===5&&q.every(x=>typeof x==="string"&&x.trim()))return q;
+  const base=[...(review.unresolved_questions||[]),...(review.approved_findings||[])].filter(Boolean);
+  const focus=base.length?base.join("; "):"Continue the mission from the approved findings and current checkpoint.";
+  return [1,2,3,4,5].map((n,i)=>i===4
+   ?"Review the previous four passes, verify claims against repository/runtime evidence, and produce the next five-pass plan or readiness decision."
+   :"Pass "+n+": "+focus+" Preserve mission scope, architecture invariants, and evidence.");
+ }
+
+ async consumeSupervisorDecision({event,result,supervisorId}){
+  const pipeline=this.integration.pipelineApi||globalThis.TitanWorkCodexPipeline;
+  const review=this.normalizeCycleReview({event,result});
+  const route=pipeline.nextResearchEpoch(review);
+  const mission=this.missionControl.get(event.missionId);
+  this.integration.recordArtifact({id:review.review_id,type:"cycle-review",missionId:event.missionId,agentId:supervisorId,metadata:{decision:review.next_decision,passes:review.passes_completed}});
+  this.state.chatRuntime.reviews=this.state.chatRuntime.reviews||{};
+  this.state.chatRuntime.reviews[event.workerId]=clone(review);
+  const supervisor=this.integration.controller.registry.get(supervisorId);if(supervisor){supervisor.status="idle";supervisor.updatedAt=Date.now()}
+  if(route.action==="research"){
+   const nextCycle=Number(review.cycle||1)+1,queue=this.nextFiveQueue(review,result);
+   await this.startCycle(event.workerId,{missionId:event.missionId,cycleId:String(nextCycle),queue});
+   this.audit("supervisor-decision-continue",{workerId:event.workerId,missionId:event.missionId,reviewId:review.review_id,targetPasses:route.target_passes});
+  }else if(route.action==="compile-delta"){
+   const delta=pipeline.compileApprovedImplementationDelta({
+    mission:this.integration.normalizePipelineMission(mission),cycle_reviews:[review],
+    validated_findings:review.approved_findings,
+    required_changes:result?.required_changes||result?.requiredChanges||review.approved_findings,
+    scope_paths:mission.scopePaths||[],dependencies:review.dependencies,
+    architecture_constraints:mission.constraints||[],tests:mission.tests||[],
+    acceptance_criteria:mission.acceptanceCriteria||[],runtime_verification:mission.verificationRequirements||[]
+   });
+   this.state.chatRuntime.approvedDeltas=this.state.chatRuntime.approvedDeltas||{};
+   this.state.chatRuntime.approvedDeltas[event.missionId]=clone(delta);
+   this.integration.recordArtifact({id:delta.delta_id,type:"approved-delta",missionId:event.missionId,parentIds:[review.review_id],agentId:supervisorId});
+   window.dispatchEvent(new CustomEvent("titan-workforce:approved-delta",{detail:{missionId:event.missionId,workerId:event.workerId,supervisorId,review:clone(review),delta:clone(delta)}}));
+   this.audit("supervisor-decision-ready-for-codex",{workerId:event.workerId,missionId:event.missionId,reviewId:review.review_id,deltaId:delta.delta_id});
+  }else if(route.action==="redirect"){
+   mission.status="research";mission.redirect=clone(route.redirect||{});mission.updatedAt=Date.now();
+   const queue=this.nextFiveQueue(review,{next_queue:route.redirect?.queue});
+   await this.startCycle(event.workerId,{missionId:event.missionId,cycleId:String(Number(review.cycle||1)+1),queue});
+   this.audit("supervisor-decision-redirect",{workerId:event.workerId,missionId:event.missionId,reviewId:review.review_id,redirect:route.redirect});
+  }else if(route.action==="mission-control-attention"){
+   mission.status="blocked";mission.blocker=clone(route.blocker||{});mission.updatedAt=Date.now();
+   this.scheduler.block(event.workerId,mission.blocker?.reason||"Work Supervisor blocked mission");
+   this.syncWorkerSlot(event.workerId);
+   this.audit("supervisor-decision-blocked",{workerId:event.workerId,missionId:event.missionId,reviewId:review.review_id,blocker:mission.blocker});
+  }else throw new Error("Unsupported Work decision route: "+route.action);
+  this.persistSnapshot();await this.save();
+  return {review,route};
  }
 
  snapshot(){
