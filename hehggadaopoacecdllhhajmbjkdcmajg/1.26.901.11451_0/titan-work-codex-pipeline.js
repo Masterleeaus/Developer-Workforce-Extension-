@@ -593,6 +593,7 @@
     collectVerificationEvidence,
     unresolvedDependencies,
     builderCompatible,
+    scopeAllowsPath,
     pathsConflict
   });
 });
