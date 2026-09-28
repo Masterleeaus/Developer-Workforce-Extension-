@@ -1,0 +1,27 @@
+name: Developer Workforce Acceptance Certification
+on:
+  pull_request:
+    paths:
+      - "hehggadaopoacecdllhhajmbjkdcmajg/**"
+      - ".github/workflows/acceptance-certification.yml"
+      - ".github/workflows/package-extension.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  certify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Run acceptance certification
+        run: node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/tests/acceptance-certification.mjs
+      - name: Upload acceptance certificate
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: developer-workforce-acceptance-certificate
+          path: artifacts/acceptance/
+          if-no-files-found: error
