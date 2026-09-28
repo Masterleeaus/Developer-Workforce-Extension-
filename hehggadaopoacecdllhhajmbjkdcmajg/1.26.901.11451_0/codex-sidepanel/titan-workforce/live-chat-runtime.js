@@ -18,12 +18,13 @@ function ensureRuntimeState(state){
 }
 
 export class TitanLiveChatRuntime{
- constructor({state,integration,missionControl,services,audit=()=>{},save=async()=>{},pollMs=6000}={}){
+ constructor({state,integration,missionControl,services,pipelineRuntime=null,audit=()=>{},save=async()=>{},pollMs=6000}={}){
   if(!state||!integration||!missionControl||!services)throw new Error("Live Chat runtime dependencies are required");
   this.state=ensureRuntimeState(state);
   this.integration=integration;
   this.missionControl=missionControl;
   this.services=services;
+  this.pipelineRuntime=pipelineRuntime;
   this.audit=audit;
   this.save=save;
   this.pollMs=Math.max(1000,Number(pollMs||6000));
@@ -236,13 +237,16 @@ export class TitanLiveChatRuntime{
    request.profile_context=cast.compiled.text;
   }
 
-  const result=await this.integration.requestWorkReview(squad,request);
+  const result=this.pipelineRuntime
+   ?await this.pipelineRuntime.handleSupervisorBoundary({event,request,supervisorId,squad})
+   :await this.integration.requestWorkReview(squad,request);
   this.audit("supervisor-review-requested",{
    workerId:event.workerId,
    supervisorId,
    missionId:event.missionId,
    cycleId:event.cycleId,
-   profiles:supervisor.profileIds||[]
+   profiles:supervisor.profileIds||[],
+   executablePipeline:!!this.pipelineRuntime
   });
   this.persistSnapshot();
   await this.save();
