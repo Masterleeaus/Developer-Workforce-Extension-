@@ -184,7 +184,7 @@ export class TitanMcpRegistry{
    ...arr(context.profiles),
    context.profileId
   ].filter(Boolean).map(String))];
-  if(server.allowedProfiles.length&&profileIds.length&&!profileIds.some(id=>server.allowedProfiles.includes(id))){
+  if(server.allowedProfiles.length&&(!profileIds.length||!profileIds.some(id=>server.allowedProfiles.includes(id)))){
    return {allowed:false,reason:"MCP profile denied",classification:tool.classification};
   }
   const requiresApproval=APPROVAL_CLASSES.has(tool.classification);
@@ -232,6 +232,7 @@ export class TitanMcpRegistry{
     if(!tool)throw Object.assign(new Error("MCP tool disappeared after refresh: "+toolName),{code:"MCP_TOOL_UNAVAILABLE"});
     const retryPolicy=this.policy(server,tool,context);
     if(!retryPolicy.allowed)throw Object.assign(new Error(retryPolicy.reason),{code:"MCP_POLICY_DENIED"});
+    await this.approve(server,tool,input,context,retryPolicy);
     // Stale registration fails before execution, so one refreshed retry is safe.
     const result=await call(tool);
     server.health="online";server.lastSuccessfulCallAt=this.clock();server.lastError=null;
