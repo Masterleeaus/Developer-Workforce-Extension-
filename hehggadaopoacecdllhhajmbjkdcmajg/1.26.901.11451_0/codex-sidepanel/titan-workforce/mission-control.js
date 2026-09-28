@@ -4,8 +4,8 @@ const TERMINAL=new Set(["complete","verified","cancelled","superseded"]);
 function assignmentError(message){const e=new Error(message);e.code="MISSION_ASSIGNMENT_CONTROLLER_REQUIRED";return e}
 
 export class TitanMissionControl{
- constructor(state,{assignmentHandler=null}={}){
-  this.state=state;this.state.missions=this.state.missions||{};this.assignmentHandler=assignmentHandler;
+ constructor(state,{assignmentHandler=null,audit=()=>{}}={}){
+  this.state=state;this.state.missions=this.state.missions||{};this.assignmentHandler=assignmentHandler;this.audit=audit;
  }
  setAssignmentHandler(handler){
   if(handler!=null&&typeof handler!=="function")throw new TypeError("assignment handler must be a function");
@@ -18,7 +18,9 @@ export class TitanMissionControl{
   const assignmentHistory=current?.assignmentHistory||m.assignmentHistory||[];
   const statusHistory=current?.statusHistory||m.statusHistory||[];
   this.state.missions[m.id]={...current,...m,assignedAgent,assignmentHistory,statusHistory};
-  this.state.updatedAt=Date.now();return this.state.missions[m.id];
+  this.state.updatedAt=Date.now();
+  this.audit(current?"mission-updated":"mission-created",{missionId:m.id,status:this.state.missions[m.id].status,repository:m.repository||m.repo||null,priority:m.priority||null});
+  return this.state.missions[m.id];
  }
  get(id){return this.state.missions[id]||null}
  list(){return Object.values(this.state.missions)}
@@ -32,13 +34,14 @@ export class TitanMissionControl{
   if(slot?.missionId===id){slot.missionId=null;slot.profileIds=[];slot.status="idle";slot.updatedAt=at}
   m.assignedAgent=null;m.updatedAt=at;
   m.assignmentHistory=[...(m.assignmentHistory||[]),{id:`release:${id}:${at}`,type:"released",from:agentId,to:null,at,source:"mission-control",reason}].slice(-100);
-  this.state.updatedAt=at;return m;
+  this.state.updatedAt=at;this.audit("mission-assignment-cleared",{missionId:id,agentId,reason});return m;
  }
  transition(id,status,reason=null){
   const m=this.get(id);if(!m)throw new Error("Unknown mission "+id);
   const previous=m.status,at=Date.now();
   m.status=status;m.statusReason=reason;m.updatedAt=at;
   m.statusHistory=[...(m.statusHistory||[]),{from:previous,to:status,reason,at}].slice(-100);
+  this.audit("mission-transition:"+status,{missionId:id,from:previous,to:status,reason});
   if(TERMINAL.has(status))this.clearAssignment(id,"terminal:"+status);
   this.state.updatedAt=at;return m;
  }
