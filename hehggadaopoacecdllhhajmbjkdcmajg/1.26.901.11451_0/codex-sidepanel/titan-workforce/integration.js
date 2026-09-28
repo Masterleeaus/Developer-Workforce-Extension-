@@ -7,8 +7,8 @@ const getGlobal=name=>globalThis[name]||null;
 const clone=x=>x==null?x:JSON.parse(JSON.stringify(x));
 
 export class TitanWorkforceIntegration{
- constructor({state,controller,missionControl,services,capabilities=null,repositoryIntelligence=null,architectureIndex=null,audit=()=>{}}){
-  this.state=state;this.controller=controller;this.missionControl=missionControl;this.services=services;this.capabilities=capabilities;this.repositoryIntelligence=repositoryIntelligence;this.architectureIndex=architectureIndex;this.audit=audit;
+ constructor({state,controller,missionControl,services,capabilities=null,repositoryIntelligence=null,architectureIndex=null,usageGovernor=null,audit=()=>{}}){
+  this.state=state;this.controller=controller;this.missionControl=missionControl;this.services=services;this.capabilities=capabilities;this.repositoryIntelligence=repositoryIntelligence;this.architectureIndex=architectureIndex;this.usageGovernor=usageGovernor;this.audit=audit;
   this.provenance=new TitanProvenanceGraph(state);
   this.chatScheduler=null;this.profileApi=null;this.pipelineApi=null;
  }
@@ -74,18 +74,31 @@ export class TitanWorkforceIntegration{
  }
  async dispatchCodexPacket(builderId,packet,context={}){
   const slot=this.controller.registry.get(builderId);if(!slot||slot.executionClass!=="codex_builder")throw new Error("Codex builder required");
-  if(this.capabilities?.has?.("codex.build")){
-   const allowed=this.allowedCapabilitiesForSlot(slot);
-   return this.capabilities.call("codex.build",{builderId,packet},{...context,executionClass:slot.executionClass,profileIds:slot.profileIds||[],...(allowed?{allowedCapabilities:allowed}:{})});
-  }
-  return this.services.require("codex").build({builderId,packet});
+  const missionId=packet?.mission?.id||packet?.mission_id||slot.missionId||null;
+  const admission=this.usageGovernor?.allowCodex?.({mission:this.missionControl.get(missionId)})||{allowed:true};
+  if(!admission.allowed){const e=new Error(admission.reason||"Codex usage throttled");e.code=admission.reason||"USAGE_THROTTLE";throw e}
+  const current=this.state.usageGovernor?.metrics?.activeCodex||0;this.usageGovernor?.setConcurrency?.({codex:current+1});
+  try{
+   let result;
+   if(this.capabilities?.has?.("codex.build")){
+    const allowed=this.allowedCapabilitiesForSlot(slot);
+    result=await this.capabilities.call("codex.build",{builderId,packet},{...context,executionClass:slot.executionClass,profileIds:slot.profileIds||[],...(allowed?{allowedCapabilities:allowed}:{})});
+   }else result=await this.services.require("codex").build({builderId,packet});
+   this.usageGovernor?.record?.("codex_turn",{missionId});return result;
+  }finally{this.usageGovernor?.setConcurrency?.({codex:Math.max(0,(this.state.usageGovernor?.metrics?.activeCodex||1)-1)})}
  }
  async orchestrate(bundle,context={}){
-  const slot=this.controller.registry.get("ORCHESTRATOR");
-  if(this.capabilities?.has?.("codex.orchestrate")){
-   const allowed=this.allowedCapabilitiesForSlot(slot);
-   return this.capabilities.call("codex.orchestrate",{orchestratorId:slot.id,bundle},{...context,executionClass:slot.executionClass,profileIds:slot.profileIds||[],...(allowed?{allowedCapabilities:allowed}:{})});
-  }
-  return this.services.require("codex").orchestrate({orchestratorId:slot.id,bundle});
+  const slot=this.controller.registry.get("ORCHESTRATOR"),missionId=bundle?.mission?.id||bundle?.mission_id||slot?.missionId||null;
+  const admission=this.usageGovernor?.allowCodex?.({mission:this.missionControl.get(missionId)})||{allowed:true};
+  if(!admission.allowed){const e=new Error(admission.reason||"Codex usage throttled");e.code=admission.reason||"USAGE_THROTTLE";throw e}
+  const current=this.state.usageGovernor?.metrics?.activeCodex||0;this.usageGovernor?.setConcurrency?.({codex:current+1});
+  try{
+   let result;
+   if(this.capabilities?.has?.("codex.orchestrate")){
+    const allowed=this.allowedCapabilitiesForSlot(slot);
+    result=await this.capabilities.call("codex.orchestrate",{orchestratorId:slot.id,bundle},{...context,executionClass:slot.executionClass,profileIds:slot.profileIds||[],...(allowed?{allowedCapabilities:allowed}:{})});
+   }else result=await this.services.require("codex").orchestrate({orchestratorId:slot.id,bundle});
+   this.usageGovernor?.record?.("codex_turn",{missionId});return result;
+  }finally{this.usageGovernor?.setConcurrency?.({codex:Math.max(0,(this.state.usageGovernor?.metrics?.activeCodex||1)-1)})}
  }
 }
