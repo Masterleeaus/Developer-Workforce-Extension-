@@ -109,7 +109,8 @@ export function normalizeWorkforceState(raw={}){
  next.controls={...defaults.controls,...(rawControls||{})};
  next.controls.armed=next.controls.armed===true;
  next.controls.emergencyStop=next.controls.emergencyStop===true;
- next.controls.emergencyReason=next.controls.emergencyReason||null;\n next.controls.requiresReconciliation=next.controls.requiresReconciliation===true;\n next.controls.lastEmergencyAt=Number.isFinite(next.controls.lastEmergencyAt)?next.controls.lastEmergencyAt:null;
+ next.controls.requiresReconciliation=next.controls.requiresReconciliation===true;
+ next.controls.lastEmergencyAt=Number.isFinite(next.controls.lastEmergencyAt)?next.controls.lastEmergencyAt:null;
 
  const rawAgents=plain(source.agents)?source.agents:{};
  if(!plain(source.agents))repairIssue(issues,"MISSING_OR_MALFORMED_AGENTS",{},true);
