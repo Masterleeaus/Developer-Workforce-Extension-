@@ -31,7 +31,7 @@ export function classifyHighImpactAction(input={}){
 function approvalRequest(input,classification){
   const context=input.context||{};
   return {
-    type:"high-impact-action",
+    type:"high-impact:"+classification.type+":"+input.name,
     missionId:context.missionId||context.mission?.id||null,
     packetId:context.packetId||null,
     capability:input.name,
