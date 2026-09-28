@@ -174,7 +174,7 @@ export class TitanLiveChatRuntime{
    });
    const duration=worker.lastDispatchAt?Math.max(0,Date.now()-worker.lastDispatchAt):0;
    this.usageGovernor?.record?.("pass_duration",{missionId:worker.missionId,durationMs:duration});
-   this.audit("chat-pass-completed",{workerId,missionId:worker.missionId,cycleId:worker.cycleId,passNumber:worker.currentPass,key:[worker.missionId,worker.cycleId,workerId,worker.currentPass].join("/")});
+   this.audit("chat-pass-completed",{workerId,missionId:worker.missionId,cycleId:worker.cycleId,passNumber:worker.currentPass,key:[worker.missionId,worker.cycleId,workerId,worker.currentPass].join("/"),characters:String(obs?.lastText||"").length,cycleCompleted:worker.currentPass>=5});
    runtime.assistantCount=Number(obs.assistantCount||0);
    runtime.dispatchBaseline=null;
    this.state.chatRuntime.observations[workerId]=runtime;
