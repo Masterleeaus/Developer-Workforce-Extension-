@@ -4,6 +4,8 @@ import {TitanExecutionServices} from "./execution-services.js";
 import {installExecutionCapabilities,capabilitiesForExecutionContext} from "./execution-capabilities.js";
 import {installTitanStockAdapters} from "../titan-stock-native-adapters.js";
 import {installStockNativeEventBridge} from "./native-bridge.js";
+import {TitanWorkforceIntegration} from "./integration.js";
+import {readFile} from "node:fs/promises";
 
 const calls=[];
 const services=new TitanExecutionServices();
@@ -120,3 +122,24 @@ bindings.sync();
 }
 
 console.log("Titan execution capability tests passed");
+
+
+{
+ const state={provenance:{}};
+ const controller={registry:{get:id=>id==="BUILDER_A"?{id,executionClass:"codex_builder",profileIds:[]}:id==="ORCHESTRATOR"?{id,executionClass:"codex_orchestrator",profileIds:[]}:null}};
+ const integration=new TitanWorkforceIntegration({
+  state,controller,missionControl:{get:()=>null},services,capabilities:broker,audit:()=>{}
+ });
+ const result=await integration.dispatchCodexPacket("BUILDER_A",{packet_id:"packet-1",scope_paths:["src/**"]});
+ assert.deepEqual(result.files_changed,["src/a.js"]);
+ assert(audit.some(x=>x.type==="capability-call"&&x.data?.name==="codex.build"));
+ console.log("ok - workforce builder dispatch traverses broker");
+}
+{
+ const files=["execution-capabilities.js","native-bridge.js","../titan-stock-native-adapters.js"];
+ for(const file of files){
+  const text=await readFile(new URL(file,import.meta.url),"utf8");
+  assert(!/from\s+["'][^"']*\/assets\//.test(text),"hashed/minified asset import forbidden in "+file);
+ }
+ console.log("ok - no direct hashed asset imports");
+}
