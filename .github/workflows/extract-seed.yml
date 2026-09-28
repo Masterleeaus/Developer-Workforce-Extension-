@@ -1,0 +1,70 @@
+name: Extract Developer Workforce Extension Seed
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/extract-seed.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Verify archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARCHIVE="Developer-Workforce-Extension-seed-v3.0.34.zip"
+          test -f "$ARCHIVE"
+          unzip -t "$ARCHIVE"
+
+      - name: Extract seed safely
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARCHIVE="Developer-Workforce-Extension-seed-v3.0.34.zip"
+          TMP="$(mktemp -d)"
+          unzip -q "$ARCHIVE" -d "$TMP"
+
+          # Preserve repository coordination files already on main.
+          rm -f "$TMP/AGENTS.md" "$TMP/README-DEVELOPER-WORKFORCE.md" "$TMP/WORKSTREAMS.md"
+
+          # Copy extracted extension into repository root.
+          cp -a "$TMP"/. .
+
+          # Archive is import material, not repository source.
+          rm -f "$ARCHIVE"
+
+      - name: Validate extracted extension
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d hehggadaopoacecdllhhajmbjkdcmajg
+          MANIFEST="$(find hehggadaopoacecdllhhajmbjkdcmajg -name manifest.json -print -quit)"
+          test -n "$MANIFEST"
+          python -m json.tool "$MANIFEST" >/dev/null
+          echo "Manifest: $MANIFEST"
+          echo "Files extracted: $(find hehggadaopoacecdllhhajmbjkdcmajg -type f | wc -l)"
+
+      - name: Commit extracted seed
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No extraction changes to commit."
+            exit 0
+          fi
+          git commit -m "chore: extract Titan Code 3 v3.0.34 seed"
+          git push origin HEAD:main
