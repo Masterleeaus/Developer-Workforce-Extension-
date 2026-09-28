@@ -4,8 +4,8 @@ export const ACTION_RISK=Object.freeze({
 });
 
 const APPROVAL_ACTION_PATTERNS=[
-  [/^git\.merge$/,"merge-main"],
-  [/^server\.deploy$/,"production-deploy"],
+  [/\bgit\.merge\b/,"merge-main"],
+  [/\bserver\.deploy\b/,"production-deploy"],
   [/server.*restart|restart.*server/,"server-restart"],
   [/migration.*destructive|destructive.*migration/,"destructive-migration"],
   [/tenant|company.*boundary|boundary.*company/,"tenant-boundary-change"],
