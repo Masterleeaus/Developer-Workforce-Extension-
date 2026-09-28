@@ -21,14 +21,14 @@ export class TitanWorkforceIntegration{
  readiness(){
   return {profiles:!!this.profileApi,chat:!!this.chatScheduler,pipeline:!!this.pipelineApi,services:this.services?.status?.()||{}};
  }
- castMission(missionId,slotId){
+ castMission(missionId,slotId,{transfer=false,source="profile-cast"}={}){
   const mission=this.missionControl.get(missionId);if(!mission)throw new Error("Unknown mission "+missionId);
   if(!this.profileApi)throw new Error("Profile package unavailable");
   const slot=this.controller.registry.get(slotId);if(!slot)throw new Error("Unknown slot "+slotId);
   const cast=this.profileApi.selectProfilesForMission(mission,{executionClass:slot.executionClass});
   const compiled=this.profileApi.compileProfileContext(cast,{executionClass:slot.executionClass});
-  this.controller.assign(slotId,{missionId,profileIds:compiled.profileIds});
-  this.audit("mission-cast",{missionId,slotId,profiles:compiled.profileIds});
+  this.controller.assignMission(missionId,slotId,{profileIds:compiled.profileIds,expectedExecutionClass:slot.executionClass,transfer,source});
+  this.audit("mission-cast",{missionId,slotId,profiles:compiled.profileIds,transfer,source});
   return {mission:clone(mission),slot:clone(this.controller.registry.get(slotId)),cast,compiled};
  }
  squadForWorker(workerId){if(SQUADS.A.includes(workerId))return"A";if(SQUADS.B.includes(workerId))return"B";return null}
