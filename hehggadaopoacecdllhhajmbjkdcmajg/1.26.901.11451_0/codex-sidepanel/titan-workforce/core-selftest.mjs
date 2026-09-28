@@ -527,4 +527,82 @@ assert(waivedRuntime.gates.runtime.status==="pass"&&waivedRuntime.gates.runtime.
 const evalMixed=evaluateBooleanEvidence({a:true,b:false},["a","b","c"]);
 assert(evalMixed.status==="fail"&&evalMixed.failedFields[0]==="b"&&evalMixed.missingFields[0]==="c","boolean evidence evaluation should distinguish false from missing");
 
+
+import {OBJECTIVE_STAGES,recordWorkerCheckpoint,computeSquadConvergence,deriveObjectiveProgress,recordObjectiveProgress,finalMissionConvergence} from "./convergence.js";
+
+const convergenceState=createWorkforceState();
+for(const id of ["dep-a","dep-b"]){
+ convergenceState.missions[id]={id,title:id,status:"verified",dependencies:[],assignedAgent:null};
+}
+convergenceState.missions["unlock-me"]={id:"unlock-me",title:"Unlocked mission",status:"dependency-wait",dependencies:["dep-a","dep-b"],assignedAgent:null};
+convergenceState.missions["conv-mission"]={id:"conv-mission",title:"Convergence mission",status:"working",dependencies:[],assignedAgent:null};
+
+recordWorkerCheckpoint(convergenceState,{workerId:"A1",cycle:1,missionId:"conv-mission",reviewed:true,scopePaths:["src/shared"],dependencies:["dep-a"],approvedFindings:["a1"]});
+let squadPartial=computeSquadConvergence(convergenceState,"A",1);
+assert(squadPartial.ready===false&&squadPartial.missingWorkers.length===4,"squad convergence must wait for all five reviewed checkpoints");
+
+recordWorkerCheckpoint(convergenceState,{workerId:"A2",cycle:1,missionId:"conv-mission",reviewed:true,scopePaths:["src/shared/file.js"],dependencies:["dep-b"],approvedFindings:["a2"]});
+recordWorkerCheckpoint(convergenceState,{workerId:"A3",cycle:1,missionId:"conv-mission",reviewed:true,scopePaths:["src/a3"],blockers:["needs-review"]});
+recordWorkerCheckpoint(convergenceState,{workerId:"A4",cycle:1,missionId:"conv-mission",reviewed:true,scopePaths:["src/a4"]});
+recordWorkerCheckpoint(convergenceState,{workerId:"A5",cycle:1,missionId:"conv-mission",reviewed:true,scopePaths:["src/a5"]});
+const squadReady=computeSquadConvergence(convergenceState,"A",1);
+assert(squadReady.ready===true,"all five reviewed checkpoints should converge");
+assert(squadReady.overlaps.some(x=>x.workers.includes("A1")&&x.workers.includes("A2")),"overlapping worker scopes must be surfaced");
+assert(squadReady.blockers.some(x=>x.workerId==="A3"),"worker blockers must survive squad convergence");
+assert(squadReady.dependencies.includes("dep-a")&&squadReady.dependencies.includes("dep-b"),"dependency changes must be aggregated");
+assert(squadReady.newlyUnlockedMissionIds.includes("unlock-me"),"newly unlocked dependent missions must be surfaced");
+assert(convergenceState.convergence.squads.A.last.id===squadReady.id,"squad convergence must persist latest checkpoint");
+assert(convergenceState.convergence.squads.A.history.length>=2,"squad convergence history must be persisted");
+
+const verificationFixture=createVerificationState("conv-mission");
+for(const gate of ["git","ci","runtime","acceptance","orchestrator"])recordGate(verificationFixture,gate,{status:"pass",evidence:[gate+"-evidence"]});
+const builderResults=[
+ {result_id:"br-a",builder_slot:"builder-a",blockers:[],remaining_implementation:[]},
+ {result_id:"br-b",builder_slot:"builder-b",blockers:[],remaining_implementation:[]}
+];
+const progress=recordObjectiveProgress(convergenceState,"conv-mission",{
+ research:{complete:true,evidence:["chat-cycle"]},
+ work:{approved:true,evidence:["delta"]},
+ build:{results:builderResults,evidence:["builder-results"]},
+ orchestrator:{state:"COMPLETE",evidence:["orchestrator-decision"]},
+ verification:verificationFixture
+});
+assert(OBJECTIVE_STAGES.length===7,"objective progress should cover seven canonical stages");
+assert(progress.status==="complete"&&progress.percent===100&&progress.currentStage==="complete","fully verified mission should reach 100% objective progress");
+assert(convergenceState.objectiveProgress["conv-mission"].percent===100,"objective progress must persist");
+
+const incompleteProgress=deriveObjectiveProgress("partial-progress",{
+ research:{complete:true},
+ work:{approved:true},
+ build:{results:[{blockers:["blocked"],remaining_implementation:[]}]},
+ orchestrator:{state:"REPAIR"},
+ verification:createVerificationState("partial-progress")
+});
+assert(incompleteProgress.status==="attention","blocked build/orchestrator state should require attention");
+assert(incompleteProgress.currentStage==="build","objective progress should stop at first incomplete stage");
+
+const finalReady=finalMissionConvergence(convergenceState,"conv-mission",{
+ builderResults,
+ orchestratorDecision:{decision_id:"orch-1",state:"COMPLETE"},
+ verification:verificationFixture
+});
+assert(finalReady.verified===true&&finalReady.missingGates.length===0,"final mission convergence requires builders, orchestrator and all verification gates");
+assert(convergenceState.convergence.missions["conv-mission"].verified===true,"final mission convergence must persist");
+
+const verificationMissingRuntime=createVerificationState("conv-mission");
+for(const gate of ["git","ci","acceptance","orchestrator"])recordGate(verificationMissingRuntime,gate,{status:"pass"});
+const finalBlocked=finalMissionConvergence(convergenceState,"conv-mission",{
+ builderResults,
+ orchestratorDecision:{state:"COMPLETE"},
+ verification:verificationMissingRuntime
+});
+assert(finalBlocked.verified===false&&finalBlocked.missingGates.includes("runtime"),"missing runtime verification must block final convergence");
+
+const finalBuilderBlocked=finalMissionConvergence(convergenceState,"conv-mission",{
+ builderResults:[{result_id:"bad",blockers:["merge conflict"],remaining_implementation:[]}],
+ orchestratorDecision:{state:"COMPLETE"},
+ verification:verificationFixture
+});
+assert(finalBuilderBlocked.verified===false&&finalBuilderBlocked.buildersComplete===false,"builder blockers must block final convergence");
+
 console.log("Titan Workforce Core self-test PASS");
