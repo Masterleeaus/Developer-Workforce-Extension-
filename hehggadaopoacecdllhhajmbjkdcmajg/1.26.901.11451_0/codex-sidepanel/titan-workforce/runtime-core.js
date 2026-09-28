@@ -26,6 +26,7 @@ import {TitanMissionCompiler} from "./mission-compiler.js";
 import {TitanContextCompiler} from "./context-compiler.js";
 import {TitanUsageGovernor} from "./usage-governor.js";
 import {TitanLifecycleManager} from "./maintenance.js";
+import {TitanWorkforceObservability} from "./observability.js";
 
 export const WORKFORCE_STORAGE_KEY="titanDeveloperWorkforceV4";
 export const LEGACY_STORAGE_KEY="titan5x5.state.v2";
@@ -52,18 +53,26 @@ export async function createTitanWorkforceRuntime({
   ?migrateWorkforceState(stored[WORKFORCE_STORAGE_KEY])
   :migrateWorkforceState(stored[LEGACY_STORAGE_KEY]||createWorkforceState());
 
+ let observability=null;
  const audit=(type,data={})=>{
+  const at=Date.now();
   state.auditLog=Array.isArray(state.auditLog)?state.auditLog:[];
-  state.auditLog.push({type,data:clone(data),at:Date.now(),owner:"background"});
+  state.auditLog.push({type,data:clone(data),at,owner:"background"});
   state.auditLog=state.auditLog.slice(-1000);
-  emit(eventTarget,"titan-workforce:audit",{type,data,at:Date.now(),owner:"background"});
+  try{observability?.recordAudit(type,data,{at})}catch(error){
+   state.observabilityErrors=Array.isArray(state.observabilityErrors)?state.observabilityErrors:[];
+   state.observabilityErrors.push({at,type,message:String(error?.message||error)});
+   state.observabilityErrors=state.observabilityErrors.slice(-100);
+  }
+  emit(eventTarget,"titan-workforce:audit",{type,data,at,owner:"background"});
  };
+ observability=new TitanWorkforceObservability(state);
 
  const services=new TitanExecutionServices();
  const capabilities=new TitanCapabilityBroker({audit});
  const mcp=new TitanMcpRegistry({broker:capabilities,audit});
  installMcpService(services,mcp,audit);
- const missions=new TitanMissionControl(state);
+ const missions=new TitanMissionControl(state,{audit});
  const controller=new TitanWorkforceController(state,{audit,services,missionControl:missions});
  const stopNativeEventBridge=installStockNativeEventBridge(services,audit,eventTarget);
  installLegacyNativeBridge(services,audit);
@@ -139,9 +148,12 @@ export async function createTitanWorkforceRuntime({
 
  const api={
   state,controller,missions,services,capabilities,mcp,approvals,credentials,runtimeVerifiers,executionCapabilities,
-  integration,architecture,repositoryIntelligence,missionCompiler,contextCompiler,usageGovernor,liveChat,controls,mergeController,lifecycle,
+  integration,architecture,repositoryIntelligence,missionCompiler,contextCompiler,usageGovernor,liveChat,controls,mergeController,lifecycle,observability,
   bindAgentConversation,
   diagnostics:()=>buildCockpitDiagnostics(api),
+  metrics:()=>observability.metrics({agents:controller.registry.list()}),
+  replayEvents:options=>observability.replay(options),
+  exportDiagnostics:options=>observability.exportBundle({agents:controller.registry.list(),...(options||{})}),
   stopNativeEventBridge,
   stopCapabilityResync:()=>eventTarget?.removeEventListener?.("titan:stock-native-service",resyncCapabilities),
   stopRepositoryIndexRefresh:()=>eventTarget?.removeEventListener?.("titan-workforce:merge-complete",onMergeIndex),
@@ -176,6 +188,11 @@ export function workforceRuntimeSnapshot(api){
   usage:api.usageGovernor?.status?.()||null,
   lifecycle:clone(api.state.lifecycle||null),
   mergePressure:api.mergeController?.state||null,
-  readiness:api.integration.readiness()
+  readiness:api.integration.readiness(),
+  observability:{
+   eventCount:api.state.eventLog?.length||0,
+   metrics:api.observability?.metrics?.({agents})||null,
+   replay:api.observability?.replay?.()||null
+  }
  });
 }
