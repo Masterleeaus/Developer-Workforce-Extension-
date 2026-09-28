@@ -18,12 +18,13 @@ function ensureRuntimeState(state){
 }
 
 export class TitanLiveChatRuntime{
- constructor({state,integration,missionControl,services,pipelineRuntime=null,audit=()=>{},save=async()=>{},pollMs=6000}={}){
+ constructor({state,integration,missionControl,services,usageGovernor=null,pipelineRuntime=null,audit=()=>{},save=async()=>{},pollMs=6000}={}){
   if(!state||!integration||!missionControl||!services)throw new Error("Live Chat runtime dependencies are required");
   this.state=ensureRuntimeState(state);
   this.integration=integration;
   this.missionControl=missionControl;
   this.services=services;
+  this.usageGovernor=usageGovernor;
   this.pipelineRuntime=pipelineRuntime;
   this.audit=audit;
   this.save=save;
@@ -107,7 +108,7 @@ export class TitanLiveChatRuntime{
   return clone(worker);
  }
 
- async tickWorker(workerId){
+ async tickWorker(workerId,{allowDispatch=true}={}){
   const slot=this.integration.controller.registry.get(workerId);
   if(!slot||slot.executionClass!=="chat_worker"||!slot.conversation?.key)return null;
   const worker=this.scheduler.getWorker(workerId);
@@ -127,6 +128,8 @@ export class TitanLiveChatRuntime{
     assistantCount:Number(obs.assistantCount),
     text:String(obs.lastText||"").slice(-12000)
    });
+   const duration=worker.lastDispatchAt?Math.max(0,Date.now()-worker.lastDispatchAt):0;
+   this.usageGovernor?.record?.("pass_duration",{missionId:worker.missionId,durationMs:duration});
    runtime.assistantCount=Number(obs.assistantCount||0);
    runtime.dispatchBaseline=null;
    this.state.chatRuntime.observations[workerId]=runtime;
@@ -137,11 +140,13 @@ export class TitanLiveChatRuntime{
   }
 
   const action=this.scheduler.inspectGate(workerId,{busy:!!obs?.generating});
+  if(action.action==="dispatch"&&!allowDispatch)return{action:"held",reason:"USAGE_THROTTLE",workerId};
   if(action.action==="dispatch"){
    runtime.dispatchBaseline=Number(obs?.assistantCount||0);
    this.state.chatRuntime.observations[workerId]=runtime;
    await this.integration.dispatchChatPass(workerId,action);
    this.scheduler.confirmDispatch(workerId,action.key);
+   this.usageGovernor?.record?.("chat_turn",{missionId:action.missionId});
    this.state.sendLedger.push({
     key:action.key,
     workerId,
@@ -170,8 +175,14 @@ export class TitanLiveChatRuntime{
   if(this.ticking||!this.state.controls?.armed||this.state.controls?.emergencyStop)return;
   this.ticking=true;
   try{
-   for(const slot of this.integration.controller.registry.list("chat_worker")){
-    try{await this.tickWorker(slot.id)}
+   const chatSlots=this.integration.controller.registry.list("chat_worker");
+   const usage=this.usageGovernor?.evaluate?.()||null;
+   const slowdown=usage?.policy?.slowdown||"normal";
+   for(const slot of chatSlots){try{this.scheduler.setSlowdown?.(slot.id,slowdown)}catch{}}
+   const allowed=new Set(this.usageGovernor?.allowedChatSlots?.(chatSlots,this.state.missions||{})||chatSlots.map(x=>x.id));
+   this.usageGovernor?.setConcurrency?.({chat:chatSlots.filter(x=>["busy","working","reviewing"].includes(String(x.status))).length});
+   for(const slot of chatSlots){
+    try{await this.tickWorker(slot.id,{allowDispatch:allowed.has(slot.id)})}
     catch(error){
      this.state.chatRuntime.errors.push({
       at:Date.now(),
@@ -240,6 +251,7 @@ export class TitanLiveChatRuntime{
   const result=this.pipelineRuntime
    ?await this.pipelineRuntime.handleSupervisorBoundary({event,request,supervisorId,squad})
    :await this.integration.requestWorkReview(squad,request);
+  this.usageGovernor?.record?.("work_cycle",{missionId:event.missionId});
   this.audit("supervisor-review-requested",{
    workerId:event.workerId,
    supervisorId,
