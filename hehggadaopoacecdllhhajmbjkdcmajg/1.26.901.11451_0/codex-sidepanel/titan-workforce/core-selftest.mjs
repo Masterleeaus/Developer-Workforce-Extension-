@@ -41,6 +41,7 @@ import {TitanWorkforceController} from "./controller.js";
 import {TitanWorkforceIntegration} from "./integration.js";
 import {classifyCIFailure,recoveryRoute} from "./ci-failures.js";
 import {createVerificationState,recordGate,verificationDecision} from "./verification-plane.js";
+import {importLegacyVerification,evaluateBooleanEvidence} from "./verification-adapter.js";
 const services=new TitanExecutionServices();services.register("github",{capabilities:["truth"]});assert(services.available("github"),"service registry");
 
 const routingState=createWorkforceState();
@@ -63,5 +64,38 @@ let mismatch=false;try{await routingIntegration.dispatchCodexPacket("builder-a",
 assert(classifyCIFailure({message:"tenant isolation integration test failed"})==="TENANT_ISOLATION_FAILURE","CI taxonomy");
 const vv=createVerificationState("scope1");recordGate(vv,"git",{status:"pass"});recordGate(vv,"ci",{status:"fail",details:{message:"typescript typecheck failed"}});
 const vd=verificationDecision(vv);assert(vd.decision==="REPAIR"&&vd.failureType==="TYPE_FAILURE","verification recovery route");
+
+const partialGit=importLegacyVerification({id:"partial-git",truth:{commitExists:true}});
+assert(partialGit.gates.git.status==="pending","partial Git truth must remain pending");
+assert(partialGit.gates.git.details.evaluation.missingFields.includes("merged"),"missing merged evidence should be explicit");
+assert(partialGit.gates.ci.status==="pending","missing CI evidence must remain pending");
+
+const failedGit=importLegacyVerification({id:"failed-git",truth:{commitExists:true,merged:false,presentOnMain:true,ciPassed:true}});
+assert(failedGit.gates.git.status==="fail","explicit false Git evidence must fail");
+
+const completeGit=importLegacyVerification({id:"complete-git",truth:{commitExists:true,merged:true,presentOnMain:true,ciPassed:true}});
+assert(completeGit.gates.git.status==="pass","complete Git truth should pass");
+assert(completeGit.gates.ci.status==="pass","complete CI truth should pass");
+
+const partialRuntime=importLegacyVerification({id:"partial-runtime",runtime:{deployed:true}});
+assert(partialRuntime.gates.runtime.status==="pending","partial runtime evidence must remain pending");
+assert(partialRuntime.gates.runtime.details.evaluation.missingFields.includes("browserPassed"),"missing browser evidence should be explicit");
+
+const completeRuntime=importLegacyVerification({id:"complete-runtime",runtime:{deployed:true,browserPassed:true,consoleClean:true,networkPassed:true,acceptancePassed:true}});
+assert(completeRuntime.gates.runtime.status==="pass","complete runtime evidence should pass");
+
+const serverRuntime=importLegacyVerification({id:"server-runtime",verificationRequirements:["server"],runtime:{deployed:true,browserPassed:true,consoleClean:true,networkPassed:true,acceptancePassed:true}});
+assert(serverRuntime.gates.runtime.status==="pending","required server evidence must remain pending when absent");
+assert(serverRuntime.gates.runtime.details.evaluation.missingFields.includes("serverPassed"),"serverPassed should be required");
+
+const noAcceptance=importLegacyVerification({id:"no-acceptance"});
+assert(noAcceptance.gates.acceptance.status==="pass","zero acceptance criteria should follow explicit no-criteria policy");
+assert(noAcceptance.gates.acceptance.details.policy==="no-acceptance-criteria","no-criteria policy should be recorded");
+
+const waivedRuntime=importLegacyVerification({id:"waived-runtime",runtimeRequired:false});
+assert(waivedRuntime.gates.runtime.status==="pass"&&waivedRuntime.gates.runtime.details.waived===true,"explicit runtime waiver should be recorded");
+
+const evalMixed=evaluateBooleanEvidence({a:true,b:false},["a","b","c"]);
+assert(evalMixed.status==="fail"&&evalMixed.failedFields[0]==="b"&&evalMixed.missingFields[0]==="c","boolean evidence evaluation should distinguish false from missing");
 
 console.log("Titan Workforce Core self-test PASS");
