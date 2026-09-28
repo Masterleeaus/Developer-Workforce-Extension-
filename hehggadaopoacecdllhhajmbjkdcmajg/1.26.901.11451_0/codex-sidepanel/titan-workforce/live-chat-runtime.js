@@ -292,7 +292,7 @@ export class TitanLiveChatRuntime{
   }
   this.persistSnapshot();
   await this.save();
-  return {reviewResult:result,pendingReviewId:pendingId,status:"awaiting-result"};
+  return result;
  }
 
  extractCycleReview(value){
