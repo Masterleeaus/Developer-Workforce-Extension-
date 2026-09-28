@@ -68,6 +68,24 @@
     next_decision: "CONTINUE_5"
   }), "15 passes must require an explicit decision");
 
+  const supervisorA = api.createSupervisorReviewRequest({
+    mission: mission(),
+    worker: "A1",
+    squad: "A",
+    cycle: 1,
+    passes_completed: 5,
+    chat_cycle: { id: "cycle-a1-1" }
+  });
+  ok(supervisorA.supervisor_slot === "supervisor-a", "Squad A must route to Work Supervisor A");
+  expectThrow(() => api.createSupervisorReviewRequest({
+    mission: mission(),
+    worker: "A1",
+    squad: "A",
+    cycle: 1,
+    passes_completed: 5,
+    supervisor_slot: "supervisor-b"
+  }), "explicit Work supervisor mismatch must fail closed");
+
   const review = readyReview(15);
   const delta = api.compileApprovedImplementationDelta({
     mission: mission(),
@@ -100,6 +118,11 @@
     "builder-b": { workload: 1, repository: "example/repo", owned_paths: [] }
   });
   ok(chosen === "builder-b", "conflicting ownership must be avoided");
+
+  expectThrow(() => api.assignBuilder(delta, { builder_slot: "builder-a" }, {
+    "builder-a": { workload: 0, repository: "example/repo", owned_paths: ["src/pipeline"] },
+    "builder-b": { workload: 0, repository: "example/repo" }
+  }), "explicit builder assignment must still honor ownership conflicts");
 
   const builderResult = api.createBuilderResult({
     packet,
@@ -179,9 +202,11 @@
     checks: [
       "5/10/15-pass epoch routing",
       "15-pass explicit-decision enforcement",
+      "Work Supervisor A/B deterministic routing",
       "CycleReview -> ApprovedImplementationDelta provenance",
       "delta approval validation",
       "Builder A/B workload routing",
+      "explicit builder conflict enforcement",
       "scope/ownership conflict avoidance",
       "builder scope lock",
       "COMPLETE objective gates",
