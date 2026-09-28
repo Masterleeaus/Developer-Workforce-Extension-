@@ -9,7 +9,7 @@ function normalizeCodex(codex){
  const request=typeof codex.request==="function"?codex.request.bind(codex):null;
  const review=typeof codex.review==="function"?codex.review.bind(codex):null;
  const build=typeof codex.build==="function"?codex.build.bind(codex):typeof codex.execute==="function"?codex.execute.bind(codex):null;
- const orchestrate=typeof codex.orchestrate==="function"?codex.orchestrate.bind(codex):review;
+ const orchestrate=typeof codex.orchestrate==="function"?codex.orchestrate.bind(codex):null;
  if(!request&&!review&&!build&&!orchestrate)return null;
  return {source:codex.source||"native",capabilities:["request","review","build","orchestrate"].filter(k=>typeof ({request,review,build,orchestrate})[k]==="function"),request,review,build,orchestrate};
 }
