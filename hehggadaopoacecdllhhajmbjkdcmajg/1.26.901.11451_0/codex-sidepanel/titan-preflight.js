@@ -18,6 +18,17 @@ export async function runTitanPreflight(){
  add("GitHub Truth",svc.github?.available===true||!!window.TitanGitHubTruth);
  add("Repository Context",svc.repository?.available===true||!!window.TitanRepositoryContext);
  add("Runtime Verification",svc.runtime?.available===true||!!window.TitanRuntimeVerification);
+ add("MCP service",svc.mcp?.available===true);
+ const mcp=api?.mcp?.status?.();
+ add("MCP registry",!!api?.mcp,mcp?JSON.stringify({servers:mcp.count,online:mcp.online,tools:mcp.tools}):"missing");
+ let webMcpAssets=false,registered=[];
+ try{
+  const urls=["../content-scripts/webmcp.js","../content-scripts/webmcp-bridge.js"].map(p=>chrome.runtime.getURL(p.replace(/^\.\.\//,"")));
+  const responses=await Promise.all(urls.map(url=>fetch(url,{cache:"no-store"})));
+  webMcpAssets=responses.every(r=>r.ok);
+  registered=await chrome.scripting.getRegisteredContentScripts({ids:["codex-webmcp","codex-webmcp-bridge"]}).catch(()=>[]);
+ }catch{}
+ add("WebMCP content scripts",webMcpAssets,"registered "+registered.length+"/2 (feature gate may be off)");
  const result={ok:checks.every(x=>x.ok),at:Date.now(),checks};window.__titanPreflight=result;window.dispatchEvent(new CustomEvent("titan:preflight",{detail:result}));return result;
 }
 window.runTitanPreflight=runTitanPreflight;
