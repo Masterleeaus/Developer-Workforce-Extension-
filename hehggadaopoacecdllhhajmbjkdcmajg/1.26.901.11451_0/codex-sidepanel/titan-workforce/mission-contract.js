@@ -1,5 +1,5 @@
+import {normalizeScopePattern} from "./scope-locks.js";
 const uniq=a=>[...new Set((a||[]).filter(Boolean))];
-const normPath=p=>String(p||"").replace(/\\/g,"/").replace(/^\.\//,"").replace(/\/+/g,"/");
 
 export function normalizeMissionContract(m={}){
  const acceptance=(m.acceptanceCriteria||m.acceptance||[]).map((x,i)=>typeof x==="string"?{id:`ac-${i+1}`,text:x,done:false}:{id:x.id||`ac-${i+1}`,text:x.text||"",done:!!x.done,...x});
@@ -11,7 +11,7 @@ export function normalizeMissionContract(m={}){
    policy:m.policy||"auto",
    repository:m.repository||m.repo||null,
    branch:m.branch||null,
-   scopePaths:uniq(m.scopePaths||m.scope_paths||[]).map(normPath),
+   scopePaths:uniq(m.scopePaths||m.scope_paths||[]).map(normalizeScopePattern),
    dependencies:uniq(m.dependencies||m.dependsOn||[]),
    constraints:uniq(m.constraints||[]),
    acceptanceCriteria:acceptance,
