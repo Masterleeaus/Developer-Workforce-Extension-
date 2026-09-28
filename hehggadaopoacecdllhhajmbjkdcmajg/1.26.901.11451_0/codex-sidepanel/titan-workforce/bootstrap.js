@@ -13,6 +13,9 @@ import {createConversationService} from "./conversation-service.js";
 import {TitanWorkforceControls} from "./controls.js";
 import {TitanMergeController} from "./merge-controller.js";
 import {installEngineeringCockpit} from "./cockpit.js";
+import {TitanApprovalStore,persistApprovedScopeExpansion} from "./approvals.js";
+import {createAuthoritativeChangedPathResolver} from "./changed-path-evidence.js";
+import {enforceScopedCodexBuildCapability} from "./scoped-codex-capability.js";
 
 const KEY="titanDeveloperWorkforceV4";
 async function load(){
@@ -32,12 +35,15 @@ async function load(){
  installStockServiceFallbacks(services,{registry:controller.registry,conversationService:conversations,audit});
  const executionCapabilities=installExecutionCapabilities({services,broker:capabilities,audit});
  executionCapabilities.sync();
- const resyncCapabilities=()=>queueMicrotask(()=>executionCapabilities.sync());
+ const approvals=new TitanApprovalStore(state,{audit});
+ const installScopeGuard=()=>enforceScopedCodexBuildCapability(capabilities,{getChangedPaths:createAuthoritativeChangedPathResolver(capabilities,{audit}),audit,requestApproval:req=>approvals.request(req),persistScopeExpansion:persistApprovedScopeExpansion({state,missionControl:missions,audit})});
+ installScopeGuard();
+ const resyncCapabilities=()=>queueMicrotask(()=>{executionCapabilities.sync();installScopeGuard()});
  window.addEventListener("titan:stock-native-service",resyncCapabilities);
  const integration=new TitanWorkforceIntegration({state,controller,missionControl:missions,services,capabilities,audit});
  integration.bindGlobals();
  const controls=new TitanWorkforceControls(controller,audit);const mergeController=new TitanMergeController({audit});
- const api={state,controller,missions,services,capabilities,mcp,executionCapabilities,integration,controls,mergeController,stopNativeEventBridge,stopCapabilityResync:()=>window.removeEventListener("titan:stock-native-service",resyncCapabilities),save:()=>chrome.storage.local.set({[KEY]:state})};
+ const api={state,controller,missions,services,capabilities,mcp,approvals,executionCapabilities,integration,controls,mergeController,stopNativeEventBridge,stopCapabilityResync:()=>window.removeEventListener("titan:stock-native-service",resyncCapabilities),save:()=>chrome.storage.local.set({[KEY]:state})};
  globalThis.TitanCapabilityBroker=capabilities;
  globalThis.TitanMcpRegistry=mcp;
  globalThis.TitanDeveloperWorkforce=api;
