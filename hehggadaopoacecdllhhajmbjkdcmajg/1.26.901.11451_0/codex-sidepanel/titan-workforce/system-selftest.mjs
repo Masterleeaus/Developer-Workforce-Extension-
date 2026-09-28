@@ -49,8 +49,10 @@ for(let pass=1;pass<=5;pass++){
  scheduler.confirmDispatch("A1",action.key);
  if(pass===1){
    const before=scheduler.getWorker("A1").currentPass;
-   scheduler.confirmDispatch("A1",firstKey);
-   assert(scheduler.getWorker("A1").currentPass===before,"duplicate dispatch advanced pass");
+   let duplicateRejected=false;
+   try{scheduler.confirmDispatch("A1",firstKey)}catch{duplicateRejected=true}
+   assert(duplicateRejected,"duplicate dispatch confirmation was not rejected");
+   assert(scheduler.getWorker("A1").currentPass===before,"duplicate dispatch changed pass state");
  }
  scheduler.completePass("A1",{summary:"completed "+pass});
 }
