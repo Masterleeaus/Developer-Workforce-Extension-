@@ -9,7 +9,8 @@ import {installExecutionCapabilities} from "./execution-capabilities.js";
 import {TitanWorkforceIntegration} from "./integration.js";
 import {installLegacyNativeBridge,installConversationServices,installStockNativeEventBridge} from "./native-bridge.js";
 import {installStockServiceFallbacks} from "./stock-service-fallbacks.js";
-import {createConversationService} from "./conversation-service.js";
+import {createConversationService,bindConversation as resolveConversationBinding} from "./conversation-service.js";
+import {buildCockpitDiagnostics} from "./cockpit-diagnostics.js";
 import {TitanWorkforceControls} from "./controls.js";
 import {TitanMergeController} from "./merge-controller.js";
 import {TitanApprovalStore,persistApprovedScopeExpansion} from "./approvals.js";
@@ -94,6 +95,19 @@ export async function createTitanWorkforceRuntime({
  const contextCompiler=new TitanContextCompiler({profiles:integration.profileApi,contextProvider:(missionId,opts)=>integration.contextForMission(missionId,opts),provenance:integration.provenance,usageGovernor,audit});
  const save=async()=>{state.updatedAt=Date.now();await storage.set({[WORKFORCE_STORAGE_KEY]:state});return true};
  const liveChat=new TitanLiveChatRuntime({state,integration,missionControl:missions,services,usageGovernor,audit,save,pollMs,eventTarget});
+ const bindAgentConversation=async(agentId,conversationOrTabId)=>{
+  const slot=controller.registry.get(agentId);
+  if(!slot)throw new Error("Unknown agent "+agentId);
+  if(!["chat_worker","work_supervisor"].includes(slot.executionClass))throw new Error("Conversation binding is only supported for Chat workers and Work supervisors");
+  const conversation=conversationOrTabId&&typeof conversationOrTabId==="object"&&conversationOrTabId.key
+   ?clone(conversationOrTabId)
+   :await resolveConversationBinding(Number(conversationOrTabId));
+  if(slot.executionClass==="chat_worker")return liveChat.bindConversation(agentId,conversation);
+  if(slot.conversation?.key&&slot.conversation.key!==conversation.key)throw new Error("Conversation identity lock mismatch for "+agentId);
+  slot.conversation=clone(conversation);slot.health="ready";slot.updatedAt=Date.now();
+  audit("work-conversation-bound",{agentId,key:conversation.key,tabId:conversation.tabId});
+  await save();return clone(slot);
+ };
  if(startTimer)liveChat.start();
  const controls=new TitanWorkforceControls(controller,audit);
  const mergeController=new TitanMergeController({audit});
@@ -126,6 +140,8 @@ export async function createTitanWorkforceRuntime({
  const api={
   state,controller,missions,services,capabilities,mcp,approvals,credentials,runtimeVerifiers,executionCapabilities,
   integration,architecture,repositoryIntelligence,missionCompiler,contextCompiler,usageGovernor,liveChat,controls,mergeController,lifecycle,
+  bindAgentConversation,
+  diagnostics:()=>buildCockpitDiagnostics(api),
   stopNativeEventBridge,
   stopCapabilityResync:()=>eventTarget?.removeEventListener?.("titan:stock-native-service",resyncCapabilities),
   stopRepositoryIndexRefresh:()=>eventTarget?.removeEventListener?.("titan-workforce:merge-complete",onMergeIndex),
