@@ -6,8 +6,8 @@ const getGlobal=name=>globalThis[name]||null;
 const clone=x=>x==null?x:JSON.parse(JSON.stringify(x));
 
 export class TitanWorkforceIntegration{
- constructor({state,controller,missionControl,services,audit=()=>{}}){
-  this.state=state;this.controller=controller;this.missionControl=missionControl;this.services=services;this.audit=audit;
+ constructor({state,controller,missionControl,services,capabilities=null,audit=()=>{}}){
+  this.state=state;this.controller=controller;this.missionControl=missionControl;this.services=services;this.capabilities=capabilities;this.audit=audit;
   this.provenance=new TitanProvenanceGraph(state);
   this.chatScheduler=null;this.profileApi=null;this.pipelineApi=null;
  }
@@ -48,12 +48,31 @@ export class TitanWorkforceIntegration{
   const id=squad==="A"?"SUPERVISOR_A":"SUPERVISOR_B",slot=this.controller.registry.get(id),service=this.services.require("work");
   return service.review({supervisorId:id,conversation:slot.conversation,payload});
  }
- async dispatchCodexPacket(builderId,packet){
+ allowedCapabilitiesForSlot(slot){
+  const profileCaps=[];
+  if(this.profileApi&&Array.isArray(slot?.profileIds)){
+   for(const id of slot.profileIds){
+    const profile=this.profileApi.getProfile?.(id);
+    if(Array.isArray(profile?.allowedCapabilities))profileCaps.push(...profile.allowedCapabilities);
+   }
+  }
+  const helper=globalThis.TitanExecutionCapabilities?.capabilitiesForExecutionContext;
+  return typeof helper==="function"?helper({executionClass:slot?.executionClass,profileCapabilities:profileCaps}):null;
+ }
+ async dispatchCodexPacket(builderId,packet,context={}){
   const slot=this.controller.registry.get(builderId);if(!slot||slot.executionClass!=="codex_builder")throw new Error("Codex builder required");
+  if(this.capabilities?.has?.("codex.build")){
+   const allowed=this.allowedCapabilitiesForSlot(slot);
+   return this.capabilities.call("codex.build",{builderId,packet},{...context,executionClass:slot.executionClass,profileIds:slot.profileIds||[],...(allowed?{allowedCapabilities:allowed}:{})});
+  }
   return this.services.require("codex").build({builderId,packet});
  }
- async orchestrate(bundle){
+ async orchestrate(bundle,context={}){
   const slot=this.controller.registry.get("ORCHESTRATOR");
+  if(this.capabilities?.has?.("codex.orchestrate")){
+   const allowed=this.allowedCapabilitiesForSlot(slot);
+   return this.capabilities.call("codex.orchestrate",{orchestratorId:slot.id,bundle},{...context,executionClass:slot.executionClass,profileIds:slot.profileIds||[],...(allowed?{allowedCapabilities:allowed}:{})});
+  }
   return this.services.require("codex").orchestrate({orchestratorId:slot.id,bundle});
  }
 }
