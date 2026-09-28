@@ -67,6 +67,7 @@ export class TitanWorkforceIntegration{
  }
  async requestWorkReview(squad,payload){
   const id=squad==="A"?"SUPERVISOR_A":"SUPERVISOR_B",slot=this.controller.registry.get(id),service=this.services.require("work");requireAvailableSlot(slot);
+  this.audit("supervisor-review-requested",{missionId:payload?.missionId||payload?.mission?.id||slot.missionId||null,supervisorId:id,reviewId:payload?.reviewId||payload?.review_id||null});
   return service.review({supervisorId:id,conversation:slot.conversation,payload});
  }
  allowedCapabilitiesForSlot(slot){
@@ -86,12 +87,18 @@ export class TitanWorkforceIntegration{
   if(!admission.allowed){const e=new Error(admission.reason||"Codex usage throttled");e.code=admission.reason||"USAGE_THROTTLE";throw e}
   const current=this.state.usageGovernor?.metrics?.activeCodex||0;this.usageGovernor?.setConcurrency?.({codex:current+1});
   try{
+   this.audit("builder-assigned",{missionId,builderId,agentId:builderId,deltaId:packet?.delta_id||packet?.deltaId||null});
    let result;
    if(this.capabilities?.has?.("codex.build")){
     const allowed=this.allowedCapabilitiesForSlot(slot);
     result=await this.capabilities.call("codex.build",{builderId,packet},{...context,executionClass:slot.executionClass,profileIds:slot.profileIds||[],...(allowed?{allowedCapabilities:allowed}:{})});
    }else result=await this.services.require("codex").build({builderId,packet});
-   this.usageGovernor?.record?.("codex_turn",{missionId});return result;
+   this.usageGovernor?.record?.("codex_turn",{missionId});
+   this.audit("codex-completed",{missionId,builderId,agentId:builderId,status:"success",artifactId:result?.artifactId||result?.artifact_id||null,commit:result?.commit||result?.commitSha||result?.sha||null});
+   return result;
+  }catch(error){
+   this.audit("tool-call-failed",{missionId,builderId,agentId:builderId,tool:"codex.build",code:error?.code||null});
+   throw error;
   }finally{this.usageGovernor?.setConcurrency?.({codex:Math.max(0,(this.state.usageGovernor?.metrics?.activeCodex||1)-1)})}
  }
  async orchestrate(bundle,context={}){
@@ -105,7 +112,12 @@ export class TitanWorkforceIntegration{
     const allowed=this.allowedCapabilitiesForSlot(slot);
     result=await this.capabilities.call("codex.orchestrate",{orchestratorId:slot.id,bundle},{...context,executionClass:slot.executionClass,profileIds:slot.profileIds||[],...(allowed?{allowedCapabilities:allowed}:{})});
    }else result=await this.services.require("codex").orchestrate({orchestratorId:slot.id,bundle});
-   this.usageGovernor?.record?.("codex_turn",{missionId});return result;
+   this.usageGovernor?.record?.("codex_turn",{missionId});
+   this.audit("orchestrator-decision",{missionId,agentId:slot.id,decision:result?.decision||result?.route||null,status:result?.status||null});
+   return result;
+  }catch(error){
+   this.audit("tool-call-failed",{missionId,agentId:slot.id,tool:"codex.orchestrate",code:error?.code||null});
+   throw error;
   }finally{this.usageGovernor?.setConcurrency?.({codex:Math.max(0,(this.state.usageGovernor?.metrics?.activeCodex||1)-1)})}
  }
 }
