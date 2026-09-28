@@ -228,7 +228,7 @@ export class TitanWorkCodexRuntime{
    provenance:data.provenance||[]
   });
   run.builderResults.push(builderResult);run.status="orchestrator-review";run.updatedAt=Date.now();
-  builder.status=builderResult.blockers.length?"blocked":"idle";builder.updatedAt=Date.now();
+  builder.status=builderResult.blockers.length?"blocked":"reviewing";builder.updatedAt=Date.now();
   this.audit("codex-builder-result",{missionId:mission.id,builderId,resultId:builderResult.result_id,files:builderResult.files_changed});
 
   const github=this.services.get("github");
@@ -271,9 +271,9 @@ export class TitanWorkCodexRuntime{
   },{missionId:mission.id});
   const decision=this.pipeline.decideOrchestrator(bundle,hintFromOrchestrator(rawDecision));
   run.orchestratorDecisions.push(decision);run.status=decision.state.toLowerCase();run.updatedAt=Date.now();
-  orchestrator.status="idle";orchestrator.updatedAt=Date.now();
   const route=this.pipeline.routeOrchestratorDecision(decision);
   this.routeMissionDecision(mission.id,decision,route);
+  if(decision.state!=="COMPLETE"){orchestrator.status=decision.state==="BLOCKED"?"blocked":"idle";orchestrator.updatedAt=Date.now()}
   this.audit("codex-orchestrator-decision",{missionId:mission.id,decisionId:decision.decision_id,state:decision.state,route});
   await this.save();
   return{stage:"orchestrator",delta,packet,builderResult,bundle,decision,route};
