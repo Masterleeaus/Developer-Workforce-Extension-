@@ -20,6 +20,7 @@ import {TitanArchitectureIndex} from "./architecture-index.js";
 import {TitanRepositoryIntelligence} from "./repository-intelligence.js";
 import {TitanMissionCompiler} from "./mission-compiler.js";
 import {TitanContextCompiler} from "./context-compiler.js";
+import {TitanWorkCodexRuntime} from "./work-codex-runtime.js";
 
 export const WORKFORCE_STORAGE_KEY="titanDeveloperWorkforceV4";
 export const LEGACY_STORAGE_KEY="titan5x5.state.v2";
@@ -84,7 +85,8 @@ export async function createTitanWorkforceRuntime({
  const missionCompiler=new TitanMissionCompiler({profiles:integration.profileApi,audit});
  const contextCompiler=new TitanContextCompiler({profiles:integration.profileApi,contextProvider:(missionId,opts)=>integration.contextForMission(missionId,opts),provenance:integration.provenance,audit});
  const save=async()=>{state.updatedAt=Date.now();await storage.set({[WORKFORCE_STORAGE_KEY]:state});return true};
- const liveChat=new TitanLiveChatRuntime({state,integration,missionControl:missions,services,audit,save,pollMs});
+ const workCodex=new TitanWorkCodexRuntime({state,integration,missionControl:missions,services,capabilities,audit,save});
+ const liveChat=new TitanLiveChatRuntime({state,integration,missionControl:missions,services,pipelineRuntime:workCodex,audit,save,pollMs});
  if(startTimer)liveChat.start();
  const controls=new TitanWorkforceControls(controller,audit);
  const mergeController=new TitanMergeController({audit});
@@ -107,7 +109,7 @@ export async function createTitanWorkforceRuntime({
 
  const api={
   state,controller,missions,services,capabilities,mcp,approvals,executionCapabilities,
-  integration,architecture,repositoryIntelligence,missionCompiler,contextCompiler,liveChat,controls,mergeController,
+  integration,architecture,repositoryIntelligence,missionCompiler,contextCompiler,workCodex,liveChat,controls,mergeController,
   stopNativeEventBridge,
   stopCapabilityResync:()=>eventTarget?.removeEventListener?.("titan:stock-native-service",resyncCapabilities),
   stopRepositoryIndexRefresh:()=>eventTarget?.removeEventListener?.("titan-workforce:merge-complete",onMergeIndex),
