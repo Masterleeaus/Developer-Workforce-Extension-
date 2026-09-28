@@ -15,7 +15,7 @@ assert(m.agents.A1.missionId==="m1","legacy mission not migrated");
 assert(m.legacy.auditLog.length===1,"legacy audit lost");
 
 import {normalizeMissionContract} from "./mission-contract.js";
-import {verifyDiffScope} from "./scope-locks.js";
+import {pathAllowed,verifyDiffScope,requireScopeExpansion,verifyApprovedExpansion} from "./scope-locks.js";
 import {TitanProvenanceGraph,createProvenanceNode} from "./provenance.js";
 import {TitanMissionControl} from "./mission-control.js";
 const mc=new TitanMissionControl(s);
@@ -23,6 +23,18 @@ const mission=mc.upsert({id:"scope1",title:"Scoped mission",scope_paths:["src/ti
 assert(mission.scopePaths[0]==="src/titan-go/**","scope normalization");
 assert(verifyDiffScope(["src/titan-go/a.js","tests/x.test.js"],mission.scopePaths).ok,"valid scope rejected");
 const bad=verifyDiffScope(["src/titan-go/a.js","src/auth/x.js"],mission.scopePaths);assert(!bad.ok&&bad.violations[0]==="src/auth/x.js","scope violation missed");
+assert(pathAllowed("src/pipeline/index.js",["src/pipeline"]),"plain directory subtree");
+assert(pathAllowed("src\\pipeline\\deep\\file.js",["src\\pipeline"]),"Windows scope normalization");
+assert(pathAllowed("tests/unit.test.js",["tests/*.test.js"]),"single glob");
+assert(!pathAllowed("tests/nested/unit.test.js",["tests/*.test.js"]),"single glob crossed segment");
+assert(pathAllowed("src/deep/nested/file.js",["src/**"]),"double glob");
+assert(!pathAllowed("src-other/file.js",["src"]),"sibling escape");
+const traversalScope=verifyDiffScope(["src/pipeline/../auth/x.js"],["src/pipeline"]);assert(!traversalScope.ok&&traversalScope.invalid.some(x=>x.kind==="changed-path"),"traversal fail closed");
+const packetFixture={packet_id:"scope-packet",mission:{id:"scope1"},scope_paths:["src/titan-go"]},req=requireScopeExpansion(packetFixture,["src/auth/x.js"],{now:100});
+let missing=false;try{verifyApprovedExpansion(packetFixture,["src/auth/x.js"],req,null,{now:150})}catch(e){missing=e.code==="SCOPE_EXPANSION_NOT_APPROVED"}assert(missing,"missing approval allowed");
+let expired=false;try{verifyApprovedExpansion(packetFixture,["src/auth/x.js"],req,{approved:true,requestId:req.id,missionId:"scope1",expiresAt:149},{now:150})}catch(e){expired=e.code==="SCOPE_EXPANSION_APPROVAL_EXPIRED"}assert(expired,"expired approval allowed");
+const applied=verifyApprovedExpansion(packetFixture,["src/auth/x.js"],req,{id:"approval-1",approved:true,requestId:req.id,missionId:"scope1",expiresAt:500},{now:150});assert(applied.verification.ok&&applied.target.scope_paths.includes("src/auth/x.js"),"approved expansion not applied");
+
 const pg=new TitanProvenanceGraph(s);pg.add(createProvenanceNode({id:"p1",type:"chat-cycle",missionId:"scope1"}));pg.add(createProvenanceNode({id:"p2",type:"approved-delta",missionId:"scope1",parentIds:["p1"]}));
 assert(pg.ancestry("p2").length===2,"provenance ancestry failed");
 
