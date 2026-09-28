@@ -10,6 +10,13 @@ It deliberately does **not** own Chat scheduling, Agent Profile casting, Mission
 
 ### Work supervision
 
+Logical Work slots:
+- `supervisor-a` reviews Squad A
+- `supervisor-b` reviews Squad B
+
+`createSupervisorReviewRequest(input)` deterministically maps completed Chat cycles to the matching Work supervisor. Explicit cross-squad routing fails closed.
+
+
 `createCycleReview(input)` creates a durable `CycleReview` containing:
 
 - mission
@@ -68,7 +75,7 @@ A packet may narrow an Approved Delta but may not expand its `scope_paths`.
 - conflicting paths
 - workload
 
-Explicit builder assignment is still validated against the known slots.
+Explicit builder assignment is validated against the known slots **and** still rechecked for blocked state, repository compatibility and ownership/scope conflicts. Explicit assignment cannot bypass safety routing.
 
 ## Builder result
 
@@ -168,10 +175,12 @@ The pipeline never intentionally strips earlier provenance references.
 
 `titan-work-codex-pipeline-selftest.js` covers:
 
+- Work Supervisor A/B deterministic routing and cross-squad rejection
 - 5/10/15-pass decisions
 - the explicit decision requirement at pass 15
 - malformed/non-approved delta handoff
 - builder workload selection
+- explicit builder conflict enforcement
 - conflicting scope ownership
 - builder scope expansion rejection
 - COMPLETE objective-gate enforcement
