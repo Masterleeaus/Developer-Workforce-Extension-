@@ -146,7 +146,7 @@ export class TitanMcpRegistry{
   return clone(safe);
  }
  isStale(server){
-  return !server.lastDiscoveryAt||!server.expiresAt||this.clock()>=server.expiresAt;
+  return server.lastDiscoveryAt==null||server.expiresAt==null||this.clock()>=server.expiresAt;
  }
  async refresh(id){
   const server=this.servers.get(String(id));
