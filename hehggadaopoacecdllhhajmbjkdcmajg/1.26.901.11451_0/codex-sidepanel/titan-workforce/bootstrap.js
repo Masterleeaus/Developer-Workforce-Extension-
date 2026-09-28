@@ -25,6 +25,7 @@ import {TitanRepositoryIntelligence} from "./repository-intelligence.js";
 import {TitanMissionCompiler} from "./mission-compiler.js";
 import {TitanContextCompiler} from "./context-compiler.js";
 import {TitanGitMissionSubstrate} from "./git-mission-substrate.js";
+import {TitanWorkCodexRuntime} from "./work-codex-runtime.js";
 
 const KEY="titanDeveloperWorkforceV4";
 async function load(){
@@ -57,6 +58,9 @@ async function load(){
  const integration=new TitanWorkforceIntegration({state,controller,missionControl:missions,services,capabilities,repositoryIntelligence,architectureIndex:architecture,audit});
  integration.bindGlobals();
  const gitSubstrate=new TitanGitMissionSubstrate(state,{audit});
+ const workCodex=new TitanWorkCodexRuntime({state,integration,missionControl:missions,services,capabilities,gitSubstrate,audit,save});
+ const onApprovedDelta=event=>{const d=event.detail||{},mission=missions.get(d.missionId);if(!mission||!d.delta)return;queueMicrotask(()=>workCodex.executeApprovedDelta(mission,d.delta).catch(error=>audit("approved-delta-execution-failed",{missionId:d.missionId,message:String(error?.message||error),code:error?.code||null}))) };
+ window.addEventListener("titan-workforce:approved-delta",onApprovedDelta);
  const missionCompiler=new TitanMissionCompiler({profiles:integration.profileApi,audit});
  const contextCompiler=new TitanContextCompiler({profiles:integration.profileApi,contextProvider:(missionId,opts)=>integration.contextForMission(missionId,opts),provenance:integration.provenance,audit});
  const save=()=>chrome.storage.local.set({[KEY]:state});
@@ -65,7 +69,7 @@ async function load(){
  const controls=new TitanWorkforceControls(controller,audit);const mergeController=new TitanMergeController({audit});
  const onMergeIndex=event=>{const d=event.detail||{};if(!d.repository||!d.nextCommit||!Array.isArray(d.changes))return;try{repositoryIntelligence.applyChanges({repository:d.repository,baseCommit:d.baseCommit,nextCommit:d.nextCommit,changes:d.changes});save().catch(()=>{})}catch(error){audit("repository-index-refresh-failed",{repository:d.repository,nextCommit:d.nextCommit,message:String(error?.message||error)})}};
  window.addEventListener("titan-workforce:merge-complete",onMergeIndex);
- const api={state,controller,missions,services,capabilities,mcp,approvals,credentials,runtimeVerifiers,verifyMissionRuntime:async missionId=>{const mission=missions.get(missionId);if(!mission)throw new Error("Unknown mission "+missionId);return verifyMissionRuntime(mission,{services,registry:runtimeVerifiers,audit})},executionCapabilities,integration,architecture,repositoryIntelligence,missionCompiler,contextCompiler,gitSubstrate,liveChat,controls,mergeController,stopNativeEventBridge,stopCapabilityResync:()=>window.removeEventListener("titan:stock-native-service",resyncCapabilities),stopRepositoryIndexRefresh:()=>window.removeEventListener("titan-workforce:merge-complete",onMergeIndex),save};
+ const api={state,controller,missions,services,capabilities,mcp,approvals,credentials,runtimeVerifiers,verifyMissionRuntime:async missionId=>{const mission=missions.get(missionId);if(!mission)throw new Error("Unknown mission "+missionId);return verifyMissionRuntime(mission,{services,registry:runtimeVerifiers,audit})},executionCapabilities,integration,architecture,repositoryIntelligence,missionCompiler,contextCompiler,gitSubstrate,workCodex,liveChat,controls,mergeController,stopNativeEventBridge,stopCapabilityResync:()=>window.removeEventListener("titan:stock-native-service",resyncCapabilities),stopRepositoryIndexRefresh:()=>window.removeEventListener("titan-workforce:merge-complete",onMergeIndex),stopApprovedDeltaHandoff:()=>window.removeEventListener("titan-workforce:approved-delta",onApprovedDelta),save};
  globalThis.TitanCapabilityBroker=capabilities;
  globalThis.TitanMcpRegistry=mcp;
  globalThis.TitanDeveloperWorkforce=api;
