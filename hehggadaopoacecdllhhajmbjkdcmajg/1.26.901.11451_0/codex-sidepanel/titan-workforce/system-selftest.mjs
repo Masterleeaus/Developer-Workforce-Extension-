@@ -113,7 +113,7 @@ recordGate(runtimeState,"runtime",{status:"fail"});
 assert(verificationDecision(runtimeState).decision==="VERIFY","runtime failure did not route to verification");
 
 assert(conversationIdentity("https://example.com/c/not-chatgpt")===null,"identity guard accepted wrong origin");
-const stale=staleWorkItems([{id:"branch-1",updatedAt:0,prOpen:true}],{now:4*3600000,staleMs:3*3600000});
+const stale=staleWorkItems([{id:"branch-1",updatedAt:1,prOpen:true}],{now:4*3600000+1,staleMs:3*3600000});
 assert(stale[0]?.reaperAction==="finish-or-merge","stale work item route failed");
 
 console.log("Titan 15-agent system self-test PASS");
