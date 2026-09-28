@@ -1,0 +1,13 @@
+import {pathAllowed,verifyDiffScope,normalizeScopePath} from "./scope-locks.js";import {createWorkforceState} from "./state.js";import {TitanMissionControl} from "./mission-control.js";import {TitanApprovalStore,persistApprovedScopeExpansion} from "./approvals.js";
+const assert=(x,m)=>{if(!x)throw new Error(m)};
+assert(pathAllowed("src/pipeline/index.js",["src/pipeline"]),"plain directory must allow subtree");
+assert(pathAllowed("src/pipeline/index.js",["src/pipeline/**"]),"double glob");
+assert(pathAllowed("src/pipeline/a.js",["src/pipeline/*.js"]),"single glob");
+assert(!pathAllowed("src/pipeline/deep/a.js",["src/pipeline/*.js"]),"single glob crossed segment");
+assert(pathAllowed("src\\pipeline\\index.js",["src/pipeline"]),"windows separator");
+assert(!pathAllowed("src/pipelines/x.js",["src/pipeline"]),"sibling escape");
+assert(!pathAllowed("../secret.js",["src"]),"traversal allowed");
+assert(pathAllowed("src/file.js",["src/file.js"]),"exact file");
+let threw=false;try{normalizeScopePath("src/../secret")}catch{threw=true}assert(threw,"scope traversal normalized instead of rejected");
+const state=createWorkforceState(),mc=new TitanMissionControl(state),m=mc.upsert({id:"m",title:"m",scope_paths:["src/pipeline"]});const store=new TitanApprovalStore(state);const req={type:"scope-expansion",missionId:"m",packetId:"p",violations:["docs/x.md"]};const pending=await store.request(req);store.decide(pending.id,{approved:true,actor:"test"});const decision=await store.request(req);assert(decision.approved,"approved replay mismatch");const mismatch=await store.request({...req,violations:["other/x.md"]});assert(mismatch.status==="pending","approval reused for mismatched violation");await persistApprovedScopeExpansion({state,missionControl:mc})({request:req,approval:decision,packet:{mission_id:"m"},builderId:"BUILDER_A",changedPaths:req.violations});assert(mc.get("m").scopePaths.includes("docs/x.md"),"expansion not persisted");assert(decision.oldScope&&decision.newScope,"old/new scope not recorded");
+console.log("Canonical scope semantics PASS");
