@@ -37,8 +37,8 @@ async function load(){
  const capabilities=new TitanCapabilityBroker({audit});
  const mcp=new TitanMcpRegistry({broker:capabilities,audit});
  installMcpService(services,mcp,audit);
- const controller=new TitanWorkforceController(state,{audit,services});
  const missions=new TitanMissionControl(state);
+ const controller=new TitanWorkforceController(state,{audit,services,missionControl:missions});
  const stopNativeEventBridge=installStockNativeEventBridge(services,audit);
  installLegacyNativeBridge(services,audit);
  const conversations=createConversationService();installConversationServices(services,{chat:conversations,work:conversations},audit);
