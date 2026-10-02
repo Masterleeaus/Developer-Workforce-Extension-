@@ -318,16 +318,22 @@ function wire(el,s){
 }
 chrome.runtime.onMessage.addListener((message,_sender,sendResponse)=>{
  if(message?.type===PANEL_BRIDGE_TYPE){
-  try{
-   if(message.action==="probe")sendResponse({ok:true,result:pageProbe()});
-   else if(message.action==="send"){
+  Promise.resolve().then(async()=>{
+   const window=await chrome.windows.getCurrent();
+   const windowId=Number(message.payload?.windowId);
+   if(!Number.isSafeInteger(windowId)||Number(window?.id)!==windowId)return null;
+   const tabs=await chrome.tabs.query({active:true,windowId});
+   if(Number(tabs?.[0]?.id)!==Number(message.payload?.tabId))return null;
+   if(message.action==="probe")return {ok:true,result:pageProbe()};
+   if(message.action==="send"){
     const before=pageProbe();
-    if(before.generating)sendResponse({ok:false,code:"CONVERSATION_BUSY",error:"ChatGPT is still generating"});
-    else if(!sendPrompt(String(message.payload?.instruction||"")))sendResponse({ok:false,code:"PANEL_COMPOSER_UNAVAILABLE",error:"ChatGPT composer is unavailable"});
-    else sendResponse({ok:true,result:{ok:true,sent:true}});
-   }else sendResponse({ok:false,error:"Unknown panel bridge action"});
-  }catch(error){sendResponse({ok:false,error:String(error?.message||error),code:error?.code||"PANEL_BRIDGE_ERROR"})}
-  return false;
+    if(before.generating)return {ok:false,code:"CONVERSATION_BUSY",error:"ChatGPT is still generating"};
+    if(!sendPrompt(String(message.payload?.instruction||"")))return {ok:false,code:"PANEL_COMPOSER_UNAVAILABLE",error:"ChatGPT composer is unavailable"};
+    return {ok:true,result:{ok:true,sent:true}};
+   }
+   return {ok:false,error:"Unknown panel bridge action"};
+  }).then(response=>{if(response)sendResponse(response)},error=>sendResponse({ok:false,error:String(error?.message||error),code:error?.code||"PANEL_BRIDGE_ERROR"}));
+  return true;
  }
  if(message?.type!==STATE_TYPE)return false;
  if(message.snapshot){snapshot=message.snapshot;lastDiagnostics=snapshot.diagnostics||lastDiagnostics;render()}
