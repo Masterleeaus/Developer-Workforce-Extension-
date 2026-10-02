@@ -6,7 +6,8 @@ function pageProbe(){
  const assistant=[...document.querySelectorAll('[data-message-author-role="assistant"]')];
  const stop=!!document.querySelector('button[data-testid="stop-button"],button[aria-label*="Stop generating" i]');
  const composer=document.querySelector('#prompt-textarea,[contenteditable="true"][data-lexical-editor="true"],textarea');
- return {assistantCount:assistant.length,generating:stop,composerReady:!!composer,lastText:(assistant.at(-1)?.innerText||"").slice(-12000)};
+ const user=[...document.querySelectorAll('[data-message-author-role="user"]')];
+ return {assistantCount:assistant.length,generating:stop,composerReady:!!composer,lastText:(assistant.at(-1)?.innerText||"").slice(-12000),lastUserText:(user.at(-1)?.innerText||"").slice(-12000)};
 }
 function sendPrompt(text){
  const el=document.querySelector('#prompt-textarea,[contenteditable="true"][data-lexical-editor="true"],textarea');if(!el)return false;
