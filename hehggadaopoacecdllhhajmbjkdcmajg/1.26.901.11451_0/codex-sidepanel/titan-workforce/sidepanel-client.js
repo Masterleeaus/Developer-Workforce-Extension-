@@ -319,10 +319,10 @@ function wire(el,s){
 chrome.runtime.onMessage.addListener((message,_sender,sendResponse)=>{
  if(message?.type===PANEL_BRIDGE_TYPE){
   Promise.resolve().then(async()=>{
-   const window=await chrome.windows.getCurrent();
    const windowId=Number(message.payload?.windowId);
-   if(!Number.isSafeInteger(windowId)||Number(window?.id)!==windowId)return null;
-   const tabs=await chrome.tabs.query({active:true,windowId});
+   if(!Number.isSafeInteger(windowId))return null;
+   const tabs=await chrome.tabs.query({active:true,currentWindow:true});
+   if(Number(tabs?.[0]?.windowId)!==windowId)return null;
    if(Number(tabs?.[0]?.id)!==Number(message.payload?.tabId))return null;
    if(message.action==="probe")return {ok:true,result:pageProbe()};
    if(message.action==="send"){
