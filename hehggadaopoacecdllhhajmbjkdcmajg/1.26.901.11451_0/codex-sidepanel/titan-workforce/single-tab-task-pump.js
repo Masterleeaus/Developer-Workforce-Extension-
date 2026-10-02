@@ -75,7 +75,11 @@ export class TitanSingleTabTaskPump{
     if(!conversation?.key||!Number.isSafeInteger(conversation.tabId))throw new Error("A ChatGPT conversation tab identity is required");
     await this.conversationService.assertConversation(conversation);
     const interval=Math.max(1,Math.min(1440,Math.round(Number(intervalMinutes)||SINGLE_TAB_TASK_DEFAULTS.intervalMinutes)));
-    this.state={...initialSingleTabTaskState(),conversation:clone(conversation),intervalMinutes:interval,phase:"watching"};
+    const history=Array.isArray(this.state.history)?this.state.history.slice(-19):[];
+    if(this.state.missionText&&this.state.subtasks?.length&&this.state.currentIndex<this.state.subtasks.length){
+      history.push({taskFingerprint:this.state.sourceUserFingerprint,missionText:this.state.missionText,status:"rebound_before_all_responses",subtasks:clone(this.state.subtasks)});
+    }
+    this.state={...initialSingleTabTaskState(),history,conversation:clone(conversation),intervalMinutes:interval,phase:"watching"};
     this.rootState.singleTabTaskPump=this.state;
     this.audit("single-tab-conversation-bound",{key:conversation.key,tabId:conversation.tabId,intervalMinutes:interval});
     await this.save();
@@ -124,7 +128,11 @@ export class TitanSingleTabTaskPump{
       return action;
     }catch(error){
       this.state.lastError={code:error?.code||"TASK_PUMP_ERROR",message:String(error?.message||error),at:now};
-      if(error?.code==="CONVERSATION_IDENTITY_MISMATCH"||/No tab with id/i.test(this.state.lastError.message)){
+      if(this.state.phase==="awaiting_plan"&&/Plan|Subtask|JSON/i.test(this.state.lastError.message)){
+        this.state.enabled=false;
+        this.state.phase="plan_invalid";
+        this.state.nextRunAt=null;
+      }else if(error?.code==="CONVERSATION_IDENTITY_MISMATCH"||/No tab with id/i.test(this.state.lastError.message)){
         this.state.enabled=false;
         this.state.phase="conversation_lost";
         this.state.nextRunAt=null;
@@ -223,16 +231,16 @@ export class TitanSingleTabTaskPump{
     if(Number(observation?.assistantCount||0)<=this.state.baselineAssistantCount||!String(observation?.lastText||"").trim())return {action:"waiting",reason:"SUBTASK_NOT_READY"};
     const task=this.state.subtasks[this.state.currentIndex];
     if(!task)return {action:"error",reason:"CURRENT_SUBTASK_MISSING"};
-    task.status="complete";task.result=String(observation.lastText||"").slice(-SINGLE_TAB_TASK_DEFAULTS.maxResultCharacters);task.completedAt=now;
+    task.status="response_received";task.result=String(observation.lastText||"").slice(-SINGLE_TAB_TASK_DEFAULTS.maxResultCharacters);task.responseReceivedAt=now;
     this.state.currentIndex+=1;this.state.pendingSubtaskId=null;this.state.baselineAssistantCount=Number(observation.assistantCount||0);
     if(this.state.currentIndex>=this.state.subtasks.length){
-      this.state.history.push({taskFingerprint:this.state.sourceUserFingerprint,missionText:this.state.missionText,completedAt:now,subtasks:this.state.subtasks});
+      this.state.history.push({taskFingerprint:this.state.sourceUserFingerprint,missionText:this.state.missionText,allResponsesReceivedAt:now,subtasks:this.state.subtasks});
       this.state.history=this.state.history.slice(-20);this.state.phase="watching";
-      this.audit("single-tab-task-batch-completed",{count:this.state.subtasks.length});
-      return {action:"batch-complete",completed:task.id};
+      this.audit("single-tab-task-batch-responses-received",{count:this.state.subtasks.length});
+      return {action:"batch-responses-received",lastSubtask:task.id};
     }
     this.state.phase="waiting_delivery";this.state.nextDeliveryAt=now;
-    this.audit("single-tab-subtask-completed",{subtaskId:task.id,nextIndex:this.state.currentIndex+1,nextDeliveryAt:this.state.nextDeliveryAt});
+    this.audit("single-tab-subtask-response-received",{subtaskId:task.id,nextIndex:this.state.currentIndex+1,nextDeliveryAt:this.state.nextDeliveryAt});
     return await this.dispatchNext(observation,now);
   }
 }
