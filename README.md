@@ -1,3 +1,5 @@
+![Titan Developer Workforce Extension — BROWSER EXTENSION · ENGINEERING WORKFORCE](docs/images/portfolio-banner.svg)
+
 <div align="center">
 
 # Titan Developer Workforce Extension
