@@ -34,7 +34,10 @@ export function createSidepanelConversationService({tabs=globalThis.chrome?.tabs
   const rows=await tabs.query({active:true,lastFocusedWindow:true});
   const tab=rows?.[0];
   if(!tab||tab.incognito||!Number.isSafeInteger(tab.id))throw new Error("An active non-incognito browser tab is required");
-  return {tabId:tab.id,title:tab.title||"",url:tab.url||"",key:"chatgpt-extension-tab:"+tab.id,active:true};
+  const conversation={tabId:tab.id,title:tab.title||"",url:tab.url||"",key:"chatgpt-extension-tab:"+tab.id,active:true};
+  const probe=await request("probe");
+  if(!probe?.composerReady)throw Object.assign(new Error("ChatGPT extension conversation composer is unavailable"),{code:"PANEL_COMPOSER_UNAVAILABLE"});
+  return conversation;
  };
  const assert=async(expected)=>{
   const current=await activeConversation();
