@@ -121,10 +121,7 @@ export class TitanRuntimeOwner{
    case "approvalDecide": result=api.approvals.decide(payload.id,payload.decision||{});await api.save();break;
    case "missionUpsert": result=api.missions.upsert(payload.mission||payload);await api.save();break;
    case "singleTabBind":{
-    const tabId=Number(payload.tabId);
-    const tab=await this.tabs?.get?.(tabId);
-    const conversation=conversationCandidate(tab);
-    if(!conversation)throw new Error("Choose a ChatGPT conversation tab first");
+    const conversation=await api.singleTabTasks.conversationService.currentConversation();
     result=await api.singleTabTasks.bind(conversation,{intervalMinutes:payload.intervalMinutes});
     await this.ensureSingleTabAlarm(api);
     await api.save();
