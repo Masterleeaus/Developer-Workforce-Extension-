@@ -35,13 +35,13 @@ export function createSidepanelConversationService({tabs=globalThis.chrome?.tabs
   const tab=rows?.[0];
   if(!tab||tab.incognito||!Number.isSafeInteger(tab.id))throw new Error("An active non-incognito browser tab is required");
   const conversation={tabId:tab.id,title:tab.title||"",url:tab.url||"",key:"chatgpt-extension-tab:"+tab.id,active:true};
-  const probe=await request("probe");
+  const probe=await request("probe",{tabId:tab.id,windowId:conversation.windowId});
   if(!probe?.composerReady)throw Object.assign(new Error("ChatGPT extension conversation composer is unavailable"),{code:"PANEL_COMPOSER_UNAVAILABLE"});
   return conversation;
  };
  const assert=async(expected)=>{
   const current=await activeConversation();
-  if(current.tabId!==expected?.tabId||current.key!==expected?.key){
+  if(current.tabId!==expected?.tabId||current.key!==expected?.key||(expected?.windowId!=null&&current.windowId!==expected.windowId)){
    throw Object.assign(new Error("The active browser tab changed; single-tab conversation identity is locked."),{code:"CONVERSATION_IDENTITY_MISMATCH"});
   }
   return current;
@@ -52,15 +52,15 @@ export function createSidepanelConversationService({tabs=globalThis.chrome?.tabs
   async assertConversation(conversation){return assert(conversation)},
   async observe(conversation){
    await assert(conversation);
-   const result=await request("probe");
+   const result=await request("probe",{tabId:conversation.tabId,windowId:conversation.windowId});
    if(!result?.composerReady)throw Object.assign(new Error("ChatGPT extension conversation composer is unavailable"),{code:"PANEL_COMPOSER_UNAVAILABLE"});
    return result;
   },
   async send({conversation,instruction,idempotencyKey}){
    await assert(conversation);
-   const before=await request("probe");
+   const before=await request("probe",{tabId:conversation.tabId,windowId:conversation.windowId});
    if(before?.generating)throw Object.assign(new Error("Conversation is busy"),{code:"CONVERSATION_BUSY"});
-   const result=await request("send",{instruction,idempotencyKey});
+   const result=await request("send",{instruction,idempotencyKey,tabId:conversation.tabId,windowId:conversation.windowId});
    if(!result?.ok)throw Object.assign(new Error(result?.error||"ChatGPT extension composer rejected the prompt"),{code:result?.code||"PANEL_SEND_FAILED"});
    return {ok:true,idempotencyKey,at:Date.now()};
   }
