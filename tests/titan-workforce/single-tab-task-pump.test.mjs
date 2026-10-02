@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {TitanSingleTabTaskPump,parseTenTaskBatch} from "../../hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/single-tab-task-pump.js";
+import {createSidepanelConversationService} from "../../hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/conversation-service.js";
 
 const batch={type:"titan_task_batch",subtasks:Array.from({length:10},(_,i)=>({id:`S${i+1}`,title:`Task ${i+1}`,instruction:`Do task ${i+1}`,done_when:`Task ${i+1} is verified`}))};
 assert.equal(parseTenTaskBatch(JSON.stringify(batch)).length,10);
@@ -28,4 +29,17 @@ const uncertain=new TitanSingleTabTaskPump({state:{},conversationService:{assert
 await uncertain.bind(conversation,{intervalMinutes:1});await uncertain.start();uncertainNow=60_000;
 assert.equal((await uncertain.tick()).action,"paused-for-review");
 assert.equal(uncertain.status().enabled,false);assert.equal(uncertain.status().phase,"plan_send_uncertain");
+let activeTab={id:42,title:"GitHub issue",url:"https://github.com/acme/repo/issues/7"};
+const bridgeCalls=[];
+const panelService=createSidepanelConversationService({tabs:{query:async()=>[{...activeTab}]},request:async(action,payload)=>{
+  bridgeCalls.push({action,payload});
+  if(action==="probe")return {composerReady:true,generating:false,assistantCount:0,lastText:"",lastUserText:""};
+  if(action==="send")return {ok:true,sent:true};
+}});
+const panelConversation=await panelService.currentConversation();
+assert.equal(panelConversation.key,"chatgpt-extension-tab:42");
+await panelService.send({conversation:panelConversation,instruction:"Run one step",idempotencyKey:"x"});
+assert.ok(bridgeCalls.some(x=>x.action==="send"));
+activeTab={...activeTab,id:43};
+await assert.rejects(()=>panelService.observe(panelConversation),e=>e.code==="CONVERSATION_IDENTITY_MISMATCH");
 console.log("Single-tab task pump tests PASS");
