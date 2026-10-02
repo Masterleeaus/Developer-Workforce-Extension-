@@ -52,4 +52,5 @@ The implementation is organized around four work packages: profiles and dynamic 
 
 ## Banner
 
-The extension already contains a project icon, but no verified wide banner. The typographic title is used until a suitable banner is added.
+A checked-in project-specific banner is displayed above.
+
