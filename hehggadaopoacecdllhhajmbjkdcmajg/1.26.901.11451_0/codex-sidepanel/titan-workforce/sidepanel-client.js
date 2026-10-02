@@ -324,7 +324,7 @@ chrome.runtime.onMessage.addListener((message,_sender,sendResponse)=>{
     const before=pageProbe();
     if(before.generating)sendResponse({ok:false,code:"CONVERSATION_BUSY",error:"ChatGPT is still generating"});
     else if(!sendPrompt(String(message.payload?.instruction||"")))sendResponse({ok:false,code:"PANEL_COMPOSER_UNAVAILABLE",error:"ChatGPT composer is unavailable"});
-    else sendResponse({ok:true,result:{sent:true}});
+    else sendResponse({ok:true,result:{ok:true,sent:true}});
    }else sendResponse({ok:false,error:"Unknown panel bridge action"});
   }catch(error){sendResponse({ok:false,error:String(error?.message||error),code:error?.code||"PANEL_BRIDGE_ERROR"})}
   return false;
