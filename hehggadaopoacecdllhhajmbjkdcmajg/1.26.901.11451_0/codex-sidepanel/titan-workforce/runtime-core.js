@@ -9,7 +9,7 @@ import {installExecutionCapabilities} from "./execution-capabilities.js";
 import {TitanWorkforceIntegration} from "./integration.js";
 import {installLegacyNativeBridge,installConversationServices,installStockNativeEventBridge} from "./native-bridge.js";
 import {installStockServiceFallbacks} from "./stock-service-fallbacks.js";
-import {createConversationService,bindConversation as resolveConversationBinding} from "./conversation-service.js";
+import {createConversationService,createSidepanelConversationService,bindConversation as resolveConversationBinding} from "./conversation-service.js";
 import {buildCockpitDiagnostics} from "./cockpit-diagnostics.js";
 import {TitanWorkforceControls} from "./controls.js";
 import {TitanMergeController} from "./merge-controller.js";
@@ -92,7 +92,8 @@ export async function createTitanWorkforceRuntime({
  const stopNativeEventBridge=installStockNativeEventBridge(services,audit,eventTarget);
  installLegacyNativeBridge(services,audit);
  const conversations=createConversationService();
- const singleTabTasks=new TitanSingleTabTaskPump({state,conversationService:conversations,save,audit});
+ const singleTabConversations=createSidepanelConversationService();
+ const singleTabTasks=new TitanSingleTabTaskPump({state,conversationService:singleTabConversations,save,audit});
  installConversationServices(services,{chat:conversations,work:conversations},audit);
  const conversationRecovery=await reconcileBoundConversations(state,conversations,{audit});
  installStockServiceFallbacks(services,{registry:controller.registry,conversationService:conversations,fetchImpl,audit});
