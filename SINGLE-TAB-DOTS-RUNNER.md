@@ -10,7 +10,7 @@ The runner:
 2. When it sees a new user task and the conversation is idle, asks for exactly ten ordered, verifiable subtasks in a strict JSON shape.
 3. Validates the ten-item plan and sends one subtask prompt per interval.
 4. Waits for the current assistant response before sending the next item. A busy conversation is never interrupted.
-5. Records subtask status, result excerpts, checks, errors, and the completed batch in Titan state.
+5. Records response status, result excerpts, checks, errors, and a bounded history in Titan state. A received model response is not treated as independent verification.
 
 The single-tab runner is separate from the existing 15-slot workforce scheduler. It reuses the existing ChatGPT conversation service, state persistence, audit log, runtime owner, and Chrome alarm system; it does not create a second browser automation engine.
 
@@ -24,10 +24,10 @@ The first version binds an open `chatgpt.com/c/<id>` browser tab. The side panel
 
 Chrome alarms let Manifest V3 wake its service worker while Chrome is running. They do not wake a sleeping computer, and Chrome may deliver a missed alarm only after the browser/device resumes. Scheduling is therefore interval-based, not a hard real-time deadline. If the conversation is generating at an alarm, the runner backs off by one interval.
 
-If a send returns an ambiguous failure, the runner pauses for review instead of risking a duplicate subtask. If the conversation tab disappears or its identity changes, it pauses and reports the lost binding. Pause, rebind, and clear are user-controlled side-panel actions.
+If a send returns an ambiguous failure, the runner pauses for review instead of risking a duplicate prompt. If the conversation tab disappears or its identity changes, it pauses and reports the lost binding. An invalid ten-item plan also pauses for review. Pause, rebind, and clear are user-controlled side-panel actions. Rebinding preserves the unfinished response batch in bounded history.
 
 ## Data flow
 
-- Persisted data: bound conversation identity, interval, ten task titles/instructions/statuses, recent response excerpts, and bounded completion history in existing Titan local state.
+- Persisted data: bound conversation identity, interval, ten task titles/instructions/statuses, recent response excerpts, and bounded history in existing Titan local state.
 - No new network service, API credential, Dots endpoint, GitHub mutation, or telemetry is introduced.
 - One conversation is bound at a time. Existing mission workers and lifecycle remain available and unmodified by the single-tab scheduler.
