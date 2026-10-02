@@ -8,6 +8,13 @@
 
 </div>
 
+## Product architecture and engineering highlights
+
+A browser-based engineering workforce that extends Titan Code 3 with coordinated chat workers, supervisors, Codex builders, and a deterministic orchestrator.
+
+- **Architecture:** The runtime separates composable agent profiles from running workers; Titan assigns work, bounds tools and authority, tracks state/evidence, and applies verification contracts.
+- **Distinctive engineering:** The profile model carries expertise, architecture context, allowed capabilities, risk hints, and output/verification requirements—allowing a workforce to be composed without treating every profile as a live agent.
+
 > **Status: active migration and implementation workspace.** The repository contains the extension seed, workforce runtime modules, tests, and architecture documents. The target is documented; verify the current acceptance suite before treating the complete 15-slot workflow as released.
 
 ## Target workforce
