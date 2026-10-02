@@ -28,6 +28,7 @@ import {TitanUsageGovernor} from "./usage-governor.js";
 import {TitanLifecycleManager} from "./maintenance.js";
 import {TitanWorkforceObservability} from "./observability.js";
 import {TitanConversationLifecycle} from "./conversation-lifecycle.js";
+import {TitanSingleTabTaskPump} from "./single-tab-task-pump.js";
 import {ensureDurabilityState,TitanAuditLog,TitanSendLedger,beginRecoverySession,finishRecoverySession,reconcileBoundConversations,markRecoveryReconciled} from "./durability.js";
 
 export const WORKFORCE_STORAGE_KEY="titanDeveloperWorkforceV4";
@@ -91,6 +92,7 @@ export async function createTitanWorkforceRuntime({
  const stopNativeEventBridge=installStockNativeEventBridge(services,audit,eventTarget);
  installLegacyNativeBridge(services,audit);
  const conversations=createConversationService();
+ const singleTabTasks=new TitanSingleTabTaskPump({state,conversationService:conversations,save,audit});
  installConversationServices(services,{chat:conversations,work:conversations},audit);
  const conversationRecovery=await reconcileBoundConversations(state,conversations,{audit});
  installStockServiceFallbacks(services,{registry:controller.registry,conversationService:conversations,fetchImpl,audit});
@@ -185,7 +187,7 @@ export async function createTitanWorkforceRuntime({
  const finishSession=async()=>{finishRecoverySession(state,{audit});await save();return true};
  const api={
   state,controller,missions,services,capabilities,mcp,approvals,credentials,runtimeVerifiers,auditLog,sendLedger,executionCapabilities,
-  integration,architecture,repositoryIntelligence,missionCompiler,contextCompiler,usageGovernor,liveChat,controls,mergeController,lifecycle,observability,conversationLifecycle,
+  integration,architecture,repositoryIntelligence,missionCompiler,contextCompiler,usageGovernor,liveChat,controls,mergeController,lifecycle,observability,conversationLifecycle,singleTabTasks,
   bindAgentConversation,reconcileRecovery,finishSession,
   reconcileAction:(key,result)=>{const out=sendLedger.reconcile(key,result);save().catch(()=>{});return out},
   diagnostics:()=>buildCockpitDiagnostics(api),
