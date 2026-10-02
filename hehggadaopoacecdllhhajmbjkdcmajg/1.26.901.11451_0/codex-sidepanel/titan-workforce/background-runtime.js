@@ -1,5 +1,5 @@
 import {createTitanWorkforceRuntime} from "./runtime-core.js";
-import {TitanRuntimeOwner,RUNTIME_ALARM} from "./runtime-owner.js";
+import {TitanRuntimeOwner,RUNTIME_ALARM,SINGLE_TAB_TASK_ALARM} from "./runtime-owner.js";
 
 const MESSAGE_TYPE="TITAN_WORKFORCE_RUNTIME_COMMAND";
 const STATE_TYPE="TITAN_WORKFORCE_RUNTIME_STATE";
@@ -21,13 +21,14 @@ globalThis.TitanBackgroundWorkforceRuntime=owner;
 async function start(reason){
  await owner.ensureAlarm();
  const api=await owner.ensure();
+ await owner.ensureSingleTabAlarm(api);
  await api.save();
  notify({type:"ready",reason,snapshot:owner.snapshot(api)});
  return api;
 }
 
 chrome.alarms.onAlarm.addListener(alarm=>{
- if(alarm?.name!==RUNTIME_ALARM)return;
+ if(alarm?.name!==RUNTIME_ALARM&&alarm?.name!==SINGLE_TAB_TASK_ALARM)return;
  owner.tick("alarm").catch(error=>{
   console.error("[Titan Workforce] background tick failed",error);
   notify({type:"error",operation:"tick",message:String(error?.message||error)});
