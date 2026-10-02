@@ -49,7 +49,7 @@
     "extension_pages": "script-src 'self'; object-src 'none'; connect-src 'self' http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:* https://ab.chatgpt.com https://chatgpt.com https://api.openai.com https://api.openai.org; font-src 'self' https://cdn.openai.com;",
     "sandbox": "sandbox allow-scripts; default-src 'none'; script-src 'self' 'unsafe-eval'; worker-src blob:; connect-src 'none';"
   },
-  "description": "15-agent Titan developer workforce: 10 Chat workers, 2 Work supervisors, 2 Codex builders and 1 Codex orchestrator.",
+  "description": "15-agent Titan workforce with single-tab ChatGPT task runner and sequential ten-step plans.",
   "host_permissions": [
     "<all_urls>"
   ],
@@ -89,7 +89,7 @@
     "default_path": "codex-sidepanel/index.html"
   },
   "update_url": "https://clients2.google.com/service/update2/crx",
-  "version": "4.0.0",
+  "version": "4.1.0",
   "web_accessible_resources": [
     {
       "matches": [
