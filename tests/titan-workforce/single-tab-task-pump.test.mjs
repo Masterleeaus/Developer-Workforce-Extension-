@@ -22,4 +22,9 @@ assert.equal((await pump.tick()).action,"subtask-dispatched");assert.equal(pump.
 const status=pump.status();await assert.rejects(()=>pump.bind({key:"https://chatgpt.com/c/other",tabId:8}),/Pause/);
 await pump.pause();await pump.bind({key:"https://chatgpt.com/c/other",tabId:8});
 assert.equal(pump.status().conversation.key,"https://chatgpt.com/c/other");
+let uncertainNow=0;
+const uncertain=new TitanSingleTabTaskPump({state:{},conversationService:{assertConversation:async()=>true,observe:async()=>({assistantCount:0,generating:false,lastUserText:"Implement feature"}),send:async()=>{throw new Error("bridge disconnected")}},clock:()=>uncertainNow});
+await uncertain.bind(conversation,{intervalMinutes:1});await uncertain.start();uncertainNow=60_000;
+assert.equal((await uncertain.tick()).action,"paused-for-review");
+assert.equal(uncertain.status().enabled,false);assert.equal(uncertain.status().phase,"plan_send_uncertain");
 console.log("Single-tab task pump tests PASS");
