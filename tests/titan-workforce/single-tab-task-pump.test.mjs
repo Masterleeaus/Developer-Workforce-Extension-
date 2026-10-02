@@ -29,7 +29,7 @@ const uncertain=new TitanSingleTabTaskPump({state:{},conversationService:{assert
 await uncertain.bind(conversation,{intervalMinutes:1});await uncertain.start();uncertainNow=60_000;
 assert.equal((await uncertain.tick()).action,"paused-for-review");
 assert.equal(uncertain.status().enabled,false);assert.equal(uncertain.status().phase,"plan_send_uncertain");
-let activeTab={id:42,title:"GitHub issue",url:"https://github.com/acme/repo/issues/7"};
+let activeTab={id:42,windowId:2,title:"GitHub issue",url:"https://github.com/acme/repo/issues/7"};
 const bridgeCalls=[];
 const panelService=createSidepanelConversationService({tabs:{query:async()=>[{...activeTab}]},request:async(action,payload)=>{
   bridgeCalls.push({action,payload});
