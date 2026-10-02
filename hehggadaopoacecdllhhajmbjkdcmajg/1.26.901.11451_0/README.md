@@ -14,9 +14,9 @@ Do not load the repository root; the manifest is nested in this package director
 
 ## Single-tab task runner (4.1.0)
 
-The Chrome side panel can be opened while a GitHub tab is active. Use **Discover conversations**, bind one open `chatgpt.com/c/<id>` tab, and start the runner after posting a task in that conversation. Titan asks for exactly ten ordered subtasks, then sends one subtask per configured interval after the prior response completes. The minimum interval is one minute. The runner pauses on ambiguous sends or a lost conversation binding. It uses MV3 alarms; Chrome can wake the extension worker while running, but alarms do not wake a sleeping computer. See the repository-root `SINGLE-TAB-DOTS-RUNNER.md` for the operating boundaries and data flow.
+Open the Chrome side panel from the GitHub tab you want associated with the task. Bind that active tab, click **Use ChatGPT**, and enter the task in this extension's ChatGPT conversation. Titan asks for exactly ten ordered subtasks, then sends one subtask per configured interval after the prior response completes. The minimum interval is one minute. Keep the side panel open while it runs. The runner pauses on ambiguous sends, an invalid plan, or a lost tab binding. It uses MV3 alarms; Chrome can wake the extension worker while running, but alarms do not wake a sleeping computer. See the repository-root `SINGLE-TAB-DOTS-RUNNER.md` for the operating boundaries and data flow.
 
-The runner controls the selected visible ChatGPT conversation through the existing adapter. It does not call a Dots, Work, or Codex API. Native Work/Codex task pages are not bound directly.
+The runner controls the ChatGPT extension side-panel conversation through an in-extension bridge. It does not call a Dots, Work, or Codex API or bind a separate ChatGPT browser tab.
 
 ## Package provenance
 
