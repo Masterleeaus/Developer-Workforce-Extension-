@@ -147,12 +147,24 @@ export class TitanSingleTabTaskPump{
     this.state.phase="awaiting_plan";
     const prompt=[
       "TITAN SINGLE-TAB TASK PLAN",
-      "Break my latest task into exactly 10 ordered, independently verifiable subtasks.",
+      "Break the original task below into exactly 10 ordered, independently verifiable subtasks.",
       "Do not execute any subtask yet. Keep scope focused on the task I just gave you.",
       "Return only a JSON object: {\"type\":\"titan_task_batch\",\"subtasks\":[{\"id\":\"S1\",\"title\":\"...\",\"instruction\":\"...\",\"done_when\":\"...\"}]}.",
-      "Include exactly 10 subtasks. Each instruction must be concrete and sized for one work interval."
+      "Include exactly 10 subtasks. Each instruction must be concrete and sized for one work interval.",
+      "ORIGINAL TASK:",
+      this.state.missionText
     ].join("\n");
-    await this.conversationService.send({conversation:this.state.conversation,instruction:prompt,idempotencyKey:`${key}/plan`});
+    try{
+      await this.conversationService.send({conversation:this.state.conversation,instruction:prompt,idempotencyKey:`${key}/plan`});
+    }catch(error){
+      this.state.enabled=false;
+      this.state.phase="plan_send_uncertain";
+      this.state.nextRunAt=null;
+      this.state.lastError={code:error?.code||"SEND_UNCERTAIN",message:String(error?.message||error),at:now};
+      await this.save();
+      this.audit("single-tab-plan-send-uncertain",{conversationKey:this.state.conversation.key});
+      return {action:"paused-for-review",reason:"SEND_UNCERTAIN"};
+    }
     this.state.lastSeenUserFingerprint=fingerprint(prompt);
     this.state.lastActionAt=now;
     this.audit("single-tab-task-plan-requested",{conversationKey:this.state.conversation.key,userTaskFingerprint:key});
