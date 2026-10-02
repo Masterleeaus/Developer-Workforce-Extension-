@@ -124,7 +124,11 @@ export class TitanSingleTabTaskPump{
       return action;
     }catch(error){
       this.state.lastError={code:error?.code||"TASK_PUMP_ERROR",message:String(error?.message||error),at:now};
-      this.state.nextRunAt=now+this.state.intervalMinutes*60000;
+      if(error?.code==="CONVERSATION_IDENTITY_MISMATCH"||/No tab with id/i.test(this.state.lastError.message)){
+        this.state.enabled=false;
+        this.state.phase="conversation_lost";
+        this.state.nextRunAt=null;
+      }else this.state.nextRunAt=now+this.state.intervalMinutes*60000;
       await this.save();
       this.audit("single-tab-task-pump-error",{code:this.state.lastError.code,message:this.state.lastError.message});
       return {action:"error",...clone(this.state.lastError)};
@@ -203,7 +207,7 @@ export class TitanSingleTabTaskPump{
     this.audit("single-tab-subtask-dispatched",{subtaskId:task.id,number,conversationKey:this.state.conversation.key,idempotencyKey:key});
     return {action:"subtask-dispatched",subtaskId:task.id,number};
   }
-  acceptSubtaskResult(observation,now){
+  async acceptSubtaskResult(observation,now){
     if(Number(observation?.assistantCount||0)<=this.state.baselineAssistantCount||!String(observation?.lastText||"").trim())return {action:"waiting",reason:"SUBTASK_NOT_READY"};
     const task=this.state.subtasks[this.state.currentIndex];
     if(!task)return {action:"error",reason:"CURRENT_SUBTASK_MISSING"};
@@ -215,8 +219,8 @@ export class TitanSingleTabTaskPump{
       this.audit("single-tab-task-batch-completed",{count:this.state.subtasks.length});
       return {action:"batch-complete",completed:task.id};
     }
-    this.state.phase="waiting_delivery";this.state.nextDeliveryAt=now+this.state.intervalMinutes*60000;
+    this.state.phase="waiting_delivery";this.state.nextDeliveryAt=now;
     this.audit("single-tab-subtask-completed",{subtaskId:task.id,nextIndex:this.state.currentIndex+1,nextDeliveryAt:this.state.nextDeliveryAt});
-    return {action:"subtask-completed",subtaskId:task.id,nextIndex:this.state.currentIndex+1,nextDeliveryAt:this.state.nextDeliveryAt};
+    return await this.dispatchNext(observation,now);
   }
 }
