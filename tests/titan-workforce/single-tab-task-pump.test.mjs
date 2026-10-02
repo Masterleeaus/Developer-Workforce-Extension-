@@ -18,10 +18,11 @@ observation={assistantCount:2,generating:false,lastText:JSON.stringify(batch),la
 assert.equal((await pump.tick()).action,"plan-accepted");assert.equal(pump.status().subtasks.length,10);
 now+=120_000;assert.equal((await pump.tick()).action,"subtask-dispatched");assert.equal(sent.length,2);
 observation={assistantCount:3,generating:false,lastText:"Task 1 done; tests pass",lastUserText:"Fix the login bug"};now+=120_000;
-assert.equal((await pump.tick()).action,"subtask-dispatched");assert.equal(pump.status().subtasks[0].status,"complete");assert.equal(sent.length,3);
+assert.equal((await pump.tick()).action,"subtask-dispatched");assert.equal(pump.status().subtasks[0].status,"response_received");assert.equal(sent.length,3);
 const status=pump.status();await assert.rejects(()=>pump.bind({key:"https://chatgpt.com/c/other",tabId:8}),/Pause/);
 await pump.pause();await pump.bind({key:"https://chatgpt.com/c/other",tabId:8});
 assert.equal(pump.status().conversation.key,"https://chatgpt.com/c/other");
+assert.equal(pump.status().history[0].status,"rebound_before_all_responses");
 let uncertainNow=0;
 const uncertain=new TitanSingleTabTaskPump({state:{},conversationService:{assertConversation:async()=>true,observe:async()=>({assistantCount:0,generating:false,lastUserText:"Implement feature"}),send:async()=>{throw new Error("bridge disconnected")}},clock:()=>uncertainNow});
 await uncertain.bind(conversation,{intervalMinutes:1});await uncertain.start();uncertainNow=60_000;
