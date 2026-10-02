@@ -171,7 +171,7 @@ function ensurePanel(){
  let el=document.getElementById("titan-dev-workforce");
  if(!el){el=document.createElement("section");el.id="titan-dev-workforce";document.body.appendChild(el)}
  let toggle=document.getElementById("titan-dev-workforce-toggle");
- if(!toggle){toggle=document.createElement("button");toggle.id="titan-dev-workforce-toggle";toggle.type="button";toggle.textContent="Titan";toggle.title="Show Titan controls";toggle.style.cssText="position:fixed;right:8px;top:8px;z-index:2147483647;display:none;padding:6px 10px;border-radius:999px";toggle.addEventListener("click",()=>{el.style.display="block";toggle.style.display="none"});document.body.appendChild(toggle)}
+ if(!toggle){toggle=document.createElement("button");toggle.id="titan-dev-workforce-toggle";toggle.type="button";toggle.textContent="Runner";toggle.title="Show ChatGPT task runner controls";toggle.style.cssText="position:fixed;right:8px;top:8px;z-index:2147483647;display:none;padding:6px 10px;border-radius:999px";toggle.addEventListener("click",()=>{el.style.display="block";toggle.style.display="none"});document.body.appendChild(toggle)}
  return el;
 }
 function serviceSummary(d){
@@ -254,7 +254,7 @@ function renderSingleTabTaskControl(){
  const rows=(task.subtasks||[]).map((x,i)=>`<div class="mission-row"><b>${esc(x.id||"S"+(i+1))}</b> · ${esc(x.title||"")} <span class="pill">${esc(x.status||"queued")}</span></div>`).join("");
  const phase=task.phase||"unbound",status=task.enabled?"RUNNING":"PAUSED";
  return `<details open><summary><b>ChatGPT extension · single-tab runner</b> · ${esc(status)} · ${esc(phase)} · ${task.currentIndex||0}/10</summary>
-  <div class="muted">Bind the active browser tab, then choose <b>Use ChatGPT</b> and give the task in this extension's ChatGPT conversation. Keep this side panel open while the timed runner is active.</div>
+  <div class="muted">Bind the active browser tab and press <b>Start</b>. Then choose <b>Use ChatGPT</b> and give the task in this extension's ChatGPT conversation. Keep this side panel open while the timed runner is active.</div>
   <div class="binding">
    <label for="tdw-single-tab-interval">Interval (minutes)</label><input id="tdw-single-tab-interval" type="number" min="1" max="1440" value="${esc(task.intervalMinutes||10)}" style="width:72px">
    <button data-action="single-tab-bind">Bind active tab</button><button data-action="single-tab-start">${task.enabled?"Restart cadence":"Start"}</button><button data-action="single-tab-pause">Pause</button><button data-action="single-tab-clear">Clear</button>
