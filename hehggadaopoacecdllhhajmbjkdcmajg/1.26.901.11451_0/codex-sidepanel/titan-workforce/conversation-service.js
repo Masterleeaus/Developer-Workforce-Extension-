@@ -4,10 +4,12 @@ function conversationIdentity(url){
 async function exec(tabId,func,args=[]){const r=await chrome.scripting.executeScript({target:{tabId},func,args});return r?.[0]?.result}
 export function pageProbe(){
  const assistant=[...document.querySelectorAll('[data-message-author-role="assistant"]')];
- const stop=!!document.querySelector('button[data-testid="stop-button"],button[aria-label*="Stop generating" i]');
- const composer=document.querySelector('#prompt-textarea,[contenteditable="true"][data-lexical-editor="true"],textarea');
  const user=[...document.querySelectorAll('[data-message-author-role="user"]')];
- return {assistantCount:assistant.length,userCount:user.length,generating:stop,composerReady:!!composer,composerText:composer?(composer.value??composer.innerText??""):"",lastText:(assistant.at(-1)?.innerText||"").slice(-12000),lastUserText:(user.at(-1)?.innerText||"").slice(-12000)};
+ const stopButton=document.querySelector('button[data-testid="stop-button"],button[aria-label*="Stop generating" i]');
+ const composer=document.querySelector('#prompt-textarea,[contenteditable="true"][data-lexical-editor="true"],textarea');
+ const sendButton=document.querySelector('[data-testid="send-button"],button[aria-label*="Send" i],button[aria-label*="Queue" i]');
+ const label=el=>el?(el.getAttribute("aria-label")||el.getAttribute("title")||el.getAttribute("data-testid")||""):"";
+ return {assistantCount:assistant.length,userCount:user.length,generating:!!stopButton,composerReady:!!composer,composerTag:composer?.tagName||null,composerId:composer?.id||null,composerDisabled:!!composer?.disabled,composerText:composer?(composer.value??composer.innerText??""):"",sendButtonFound:!!sendButton,sendButtonDisabled:!!sendButton?.disabled,sendButtonLabel:label(sendButton),stopButtonFound:!!stopButton,stopButtonLabel:label(stopButton),lastText:(assistant.at(-1)?.innerText||"").slice(-12000),lastUserText:(user.at(-1)?.innerText||"").slice(-12000),lastAssistantTextLength:(assistant.at(-1)?.innerText||"").length,lastUserTextLength:(user.at(-1)?.innerText||"").length,pageOrigin:location.origin,pagePath:location.pathname,documentReadyState:document.readyState,visibilityState:document.visibilityState,userAgent:navigator.userAgent,language:navigator.language};
 }
 export async function sendPrompt(text){
  const el=document.querySelector('#prompt-textarea,[contenteditable="true"][data-lexical-editor="true"],textarea');if(!el)return false;
@@ -15,6 +17,7 @@ export async function sendPrompt(text){
  const readUsers=()=>{const users=[...document.querySelectorAll('[data-message-author-role="user"]')];return {count:users.length,lastText:users.at(-1)?.innerText||""}};
  const before=readUsers();
  el.focus();if(el.tagName==="TEXTAREA"){el.value=text;el.dispatchEvent(new Event("input",{bubbles:true}))}else{document.execCommand("insertText",false,text);el.dispatchEvent(new InputEvent("input",{bubbles:true,inputType:"insertText",data:text}))}
+ const inserted=String(el.value??el.innerText??"").trim();if(!inserted||!inserted.includes(String(text).slice(0,120)))return false;
  const b=document.querySelector('[data-testid="send-button"],button[aria-label*="Send" i],button[aria-label*="Queue" i]');
  if(b&&!b.disabled)b.click();else el.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",code:"Enter",bubbles:true,cancelable:true}));
  await new Promise(resolve=>setTimeout(resolve,250));
@@ -63,6 +66,13 @@ export function createSidepanelConversationService({tabs=globalThis.chrome?.tabs
   capabilities:["extension_panel_conversation","single_tab_identity","send","observe"],
   currentConversation:activeConversation,
   async assertConversation(conversation){return assert(conversation)},
+  async sleepTab(conversation){
+   if(!tabs.get||!tabs.discard)return {attempted:false,success:false,reason:"TAB_DISCARD_API_UNAVAILABLE"};
+   const tab=await tabs.get(conversation.tabId);
+   if(tab?.active)return {attempted:false,success:false,reason:"ACTIVE_TAB_CANNOT_BE_DISCARDED"};
+   const discarded=await tabs.discard(conversation.tabId);
+   return {attempted:true,success:!!discarded,reason:discarded?null:"TAB_DISCARD_RETURNED_EMPTY"};
+  },
   async observe(conversation){
    await assert(conversation);
    const result=await request("probe",{tabId:conversation.tabId,windowId:conversation.windowId});
