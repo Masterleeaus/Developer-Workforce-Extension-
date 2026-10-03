@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
-import {TitanSingleTabTaskPump,parseTenTaskBatch} from "../../hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/single-tab-task-pump.js";
+import {TitanSingleTabTaskPump,parseTenTaskBatch,initialSingleTabTaskState} from "../../hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/single-tab-task-pump.js";
 import {createSidepanelConversationService,sendPrompt} from "../../hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/conversation-service.js";
+import {TitanRuntimeOwner,SINGLE_TAB_TASK_ALARM} from "../../hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/runtime-owner.js";
 
 const batch={type:"titan_task_batch",subtasks:Array.from({length:10},(_,i)=>({id:`S${i+1}`,title:`Task ${i+1}`,instruction:`Do task ${i+1}`,done_when:`Task ${i+1} is verified`}))};
 assert.equal(parseTenTaskBatch(JSON.stringify(batch)).length,10);
@@ -30,8 +31,8 @@ await uncertain.bind(conversation,{intervalMinutes:1});await uncertain.start();u
 assert.equal((await uncertain.tick()).action,"paused-for-review");
 assert.equal(uncertain.status().enabled,false);assert.equal(uncertain.status().phase,"plan_send_uncertain");
 let activeTab={id:42,windowId:2,title:"GitHub issue",url:"https://github.com/acme/repo/issues/7"};
-const bridgeCalls=[];
-const panelService=createSidepanelConversationService({tabs:{query:async()=>[{...activeTab}]},request:async(action,payload)=>{
+const bridgeCalls=[],discardedTabs=[];
+const panelService=createSidepanelConversationService({tabs:{query:async()=>[{...activeTab}],get:async id=>({...activeTab,id}),discard:async id=>{discardedTabs.push(id);return activeTab.active?undefined:{id,discarded:true}}},request:async(action,payload)=>{
   bridgeCalls.push({action,payload});
   if(action==="probe")return {composerReady:true,generating:true,assistantCount:0,lastText:"",lastUserText:""};
   if(action==="send")return {ok:true,sent:true};
@@ -40,8 +41,47 @@ const panelConversation=await panelService.currentConversation();
 assert.equal(panelConversation.key,"chatgpt-extension-tab:42");
 await panelService.send({conversation:panelConversation,instruction:"Run one step",idempotencyKey:"x"});
 assert.ok(bridgeCalls.some(x=>x.action==="send"));
+activeTab={...activeTab,active:true};
+assert.equal((await panelService.sleepTab(panelConversation)).reason,"ACTIVE_TAB_CANNOT_BE_DISCARDED");
+activeTab={...activeTab,active:false};
+assert.equal((await panelService.sleepTab(panelConversation)).success,true);
+assert.deepEqual(discardedTabs,[42]);
 activeTab={...activeTab,id:43};
 await assert.rejects(()=>panelService.observe(panelConversation),e=>e.code==="CONVERSATION_IDENTITY_MISMATCH");
+
+
+let retryNow=60_000,sleepCalls=0,sendAttempts=0;
+const retryState=initialSingleTabTaskState();
+Object.assign(retryState,{enabled:true,phase:"waiting_delivery",conversation:{key:"chatgpt-extension-tab:42",tabId:42,windowId:2,url:"https://github.com/acme/repo/issues/7"},intervalMinutes:1,missionText:"Implement feature",sourceUserFingerprint:"u123",nextRunAt:retryNow,nextDeliveryAt:retryNow,subtasks:parseTenTaskBatch(JSON.stringify(batch))});
+const retryPump=new TitanSingleTabTaskPump({state:{singleTabTaskPump:retryState},conversationService:{
+  assertConversation:async()=>true,
+  observe:async()=>({assistantCount:2,userCount:2,generating:true,composerReady:true,composerTag:"DIV",composerId:"prompt-textarea",composerDisabled:false,sendButtonFound:true,sendButtonDisabled:true,sendButtonLabel:"Send",lastText:"working",lastUserText:"task",lastUserTextLength:4,lastAssistantTextLength:7,pageOrigin:"chrome-extension://chatgpt",pagePath:"/sidepanel",documentReadyState:"complete",visibilityState:"visible",userAgent:"Chrome test",language:"en"}),
+  send:async()=>{sendAttempts++;const error=new Error("composer busy");error.code="PANEL_SEND_UNCONFIRMED";throw error},
+  sleepTab:async()=>{sleepCalls++;return {attempted:true,success:true}}
+},clock:()=>retryNow,save:async()=>{}});
+assert.equal((await retryPump.tick()).action,"retry-scheduled");
+assert.equal(retryPump.status().retryNextAt,retryNow+5*60_000);
+for(let pass=1;pass<=5;pass++){
+  retryNow=retryPump.status().retryNextAt;
+  const result=await retryPump.tick();
+  if(pass<5)assert.equal(result.action,"retry-scheduled");
+  else assert.equal(result.action,"sleep-and-diagnostic");
+}
+assert.equal(sendAttempts,6,"initial attempt plus five retry passes");
+assert.equal(sleepCalls,1);
+assert.equal(retryPump.status().enabled,false);
+assert.equal(retryPump.status().phase,"sleep_after_retry_failures");
+assert.equal(retryPump.status().diagnosticReport.retry.failedRetryPasses,5);
+assert.equal(retryPump.status().diagnosticReport.classification,"composer_busy_or_queue_unsupported");
+assert.equal(retryPump.status().diagnosticReport.sleep.success,true);
+assert.equal(retryPump.status().diagnosticReport.probe.lastUserText,undefined,"diagnostics omit conversation text");
+
+
+const alarmState={},alarmCalls=[];
+const owner=new TitanRuntimeOwner({createRuntime:async()=>({}),alarms:{get:async name=>alarmState[name]||null,clear:async name=>{delete alarmState[name];return true},create:async(name,info)=>{alarmState[name]={...info};alarmCalls.push({name,...info})}}});
+const alarmApi={singleTabTasks:{status:()=>({enabled:true,conversation:{tabId:42},intervalMinutes:1,retryPending:true,retryIntervalMinutes:5})}};
+await owner.ensureSingleTabAlarm(alarmApi);
+assert.equal(alarmState[SINGLE_TAB_TASK_ALARM].periodInMinutes,5,"retrying changes the alarm to the five-minute retry cadence");
 
 const previousDocument=globalThis.document,previousInputEvent=globalThis.InputEvent,previousKeyboardEvent=globalThis.KeyboardEvent;
 globalThis.InputEvent=class extends Event{};globalThis.KeyboardEvent=class extends Event{};
