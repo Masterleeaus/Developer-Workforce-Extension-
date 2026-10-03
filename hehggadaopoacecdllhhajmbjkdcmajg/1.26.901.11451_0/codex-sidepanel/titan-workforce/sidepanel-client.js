@@ -260,8 +260,11 @@ function renderSingleTabTaskControl(){
    <button data-action="single-tab-bind">Bind active tab</button><button data-action="single-tab-start">${task.enabled?"Restart cadence":"Start"}</button><button data-action="single-tab-pause">Pause</button><button data-action="single-tab-clear">Clear</button>
   </div>
   <div class="muted">Bound tab: ${esc(bound?.title||bound?.key||"none")} · next check: ${esc(fmtTime(task.nextRunAt))} · last check: ${esc(fmtTime(task.lastCheckAt))}</div>
+  <div class="muted">On an unconfirmed subtask send, retry every ${esc(task.retryIntervalMinutes||5)} minutes; after ${esc(task.maxRetryPasses||5)} failed retries the runner parks and creates diagnostics. Chrome can discard only an inactive tab.</div>
+  ${task.retryPending?`<div class="result bad"><b>Retrying ${esc(task.retryTaskIndex!=null?"S"+(task.retryTaskIndex+1):"")}</b> · failed retry passes ${esc(task.retryPasses||0)}/${esc(task.maxRetryPasses||5)} · next retry ${esc(fmtTime(task.retryNextAt))}</div>`:""}
   <div class="mission-list">${rows||"<span class=\"muted\">No 10-step plan yet.</span>"}</div>
   ${task.lastError?`<div class="result bad">${esc(task.lastError.code||"Error")}: ${esc(task.lastError.message||"")}</div>`:""}
+  ${task.diagnosticReport?`<details open><summary><b>Send diagnostic</b> · ${esc(task.diagnosticReport.classification||"report ready")}</summary><div><b>Likely cause:</b> ${esc(task.diagnosticReport.likelyCause||"")}</div><div><b>Sleep result:</b> ${esc(task.diagnosticReport.sleepNote||task.diagnosticReport.sleep?.reason||"")}</div><div><b>Suggested checks:</b> ${(task.diagnosticReport.nextSteps||[]).map(esc).join(" · ")}</div><pre style="white-space:pre-wrap;max-height:280px;overflow:auto">${esc(JSON.stringify(task.diagnosticReport,null,2))}</pre></details>`:""}
  </details>`;
 }
 function render(){
