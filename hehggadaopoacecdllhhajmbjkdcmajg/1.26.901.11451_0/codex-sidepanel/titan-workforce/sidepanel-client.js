@@ -326,9 +326,7 @@ chrome.runtime.onMessage.addListener((message,_sender,sendResponse)=>{
    if(Number(tabs?.[0]?.id)!==Number(message.payload?.tabId))return null;
    if(message.action==="probe")return {ok:true,result:pageProbe()};
    if(message.action==="send"){
-    const before=pageProbe();
-    if(before.generating)return {ok:false,code:"CONVERSATION_BUSY",error:"ChatGPT is still generating"};
-    if(!sendPrompt(String(message.payload?.instruction||"")))return {ok:false,code:"PANEL_COMPOSER_UNAVAILABLE",error:"ChatGPT composer is unavailable"};
+    if(!await sendPrompt(String(message.payload?.instruction||"")))return {ok:false,code:"PANEL_SEND_UNCONFIRMED",error:"ChatGPT did not accept the prompt. The composer may be busy or contain an unsent draft."};
     return {ok:true,result:{ok:true,sent:true}};
    }
    return {ok:false,error:"Unknown panel bridge action"};
@@ -342,3 +340,4 @@ chrome.runtime.onMessage.addListener((message,_sender,sendResponse)=>{
 refresh();
 timer=setInterval(refresh,5000);
 window.addEventListener("pagehide",()=>{if(timer)clearInterval(timer)},{once:true});
+
