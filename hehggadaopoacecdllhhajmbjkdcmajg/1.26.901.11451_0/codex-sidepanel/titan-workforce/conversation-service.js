@@ -7,12 +7,24 @@ export function pageProbe(){
  const stop=!!document.querySelector('button[data-testid="stop-button"],button[aria-label*="Stop generating" i]');
  const composer=document.querySelector('#prompt-textarea,[contenteditable="true"][data-lexical-editor="true"],textarea');
  const user=[...document.querySelectorAll('[data-message-author-role="user"]')];
- return {assistantCount:assistant.length,generating:stop,composerReady:!!composer,lastText:(assistant.at(-1)?.innerText||"").slice(-12000),lastUserText:(user.at(-1)?.innerText||"").slice(-12000)};
+ return {assistantCount:assistant.length,userCount:user.length,generating:stop,composerReady:!!composer,composerText:composer?(composer.value??composer.innerText??""):"",lastText:(assistant.at(-1)?.innerText||"").slice(-12000),lastUserText:(user.at(-1)?.innerText||"").slice(-12000)};
 }
-export function sendPrompt(text){
+export async function sendPrompt(text){
  const el=document.querySelector('#prompt-textarea,[contenteditable="true"][data-lexical-editor="true"],textarea');if(!el)return false;
- el.focus();if(el.tagName==="TEXTAREA"){el.value=text;el.dispatchEvent(new Event("input",{bubbles:true}))}else{el.innerHTML="";document.execCommand("insertText",false,text);el.dispatchEvent(new InputEvent("input",{bubbles:true,inputType:"insertText",data:text}))}
- const b=document.querySelector('[data-testid="send-button"],button[aria-label*="Send" i]');if(b&&!b.disabled){b.click();return true}el.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",code:"Enter",bubbles:true,cancelable:true}));return true;
+ const existing=String(el.value??el.innerText??"").trim();if(existing)return false;
+ const before=pageProbe();
+ el.focus();if(el.tagName==="TEXTAREA"){el.value=text;el.dispatchEvent(new Event("input",{bubbles:true}))}else{document.execCommand("insertText",false,text);el.dispatchEvent(new InputEvent("input",{bubbles:true,inputType:"insertText",data:text}))}
+ const b=document.querySelector('[data-testid="send-button"],button[aria-label*="Send" i],button[aria-label*="Queue" i]');
+ if(b&&!b.disabled)b.click();else el.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",code:"Enter",bubbles:true,cancelable:true}));
+ await new Promise(resolve=>setTimeout(resolve,250));
+ const after=pageProbe(),composer=document.querySelector('#prompt-textarea,[contenteditable="true"][data-lexical-editor="true"],textarea');
+ const accepted=Number(after?.userCount||0)>Number(before?.userCount||0)||String(after?.lastUserText||"").includes(String(text).slice(0,120))||!String(composer?.value??composer?.innerText??"").trim();
+ if(accepted)return true;
+ if(composer&&String(composer.value??composer.innerText??"").trim()===String(text).trim()){
+  composer.focus();if(composer.tagName==="TEXTAREA")composer.value="";else composer.textContent="";
+  composer.dispatchEvent(new Event("input",{bubbles:true}));
+ }
+ return false;
 }
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function waitUntil(fn,{timeoutMs=30000,intervalMs=250}={}){
@@ -58,8 +70,6 @@ export function createSidepanelConversationService({tabs=globalThis.chrome?.tabs
   },
   async send({conversation,instruction,idempotencyKey}){
    await assert(conversation);
-   const before=await request("probe",{tabId:conversation.tabId,windowId:conversation.windowId});
-   if(before?.generating)throw Object.assign(new Error("Conversation is busy"),{code:"CONVERSATION_BUSY"});
    const result=await request("send",{instruction,idempotencyKey,tabId:conversation.tabId,windowId:conversation.windowId});
    if(!result?.ok)throw Object.assign(new Error(result?.error||"ChatGPT extension composer rejected the prompt"),{code:result?.code||"PANEL_SEND_FAILED"});
    return {ok:true,idempotencyKey,at:Date.now()};
@@ -81,7 +91,6 @@ export function createConversationService(){
   },
   async send({conversation,instruction,idempotencyKey}){
    await this.assertConversation(conversation);
-   const p=await exec(conversation.tabId,pageProbe);if(p?.generating){const e=new Error("Conversation is busy");e.code="CONVERSATION_BUSY";throw e}
    const ok=await exec(conversation.tabId,sendPrompt,[instruction]);if(!ok)throw new Error("Prompt composer unavailable");
    return {ok:true,idempotencyKey,at:Date.now()};
   },
@@ -119,3 +128,4 @@ export function createConversationService(){
 export function bindConversation(tabId){
  return chrome.tabs.get(tabId).then(tab=>{const id=conversationIdentity(tab.url||"");if(!id)throw new Error("Cannot bind conversation");return {...id,tabId,title:tab.title||"",boundAt:Date.now()}});
 }
+
