@@ -4,7 +4,7 @@
 
 The runner uses the ChatGPT conversation inside the Chrome side panel. Open that panel while the browser is on the GitHub tab you want the conversation associated with, bind the active tab, then choose **Use ChatGPT** and enter the task in the extension's conversation.
 
-Titan checks the selected conversation on a configurable interval (1–1,440 minutes; default 10). When it sees a new user task and ChatGPT is idle, it asks for exactly ten ordered, verifiable subtasks in a strict JSON shape. It validates the plan, then sends one subtask prompt per interval, waiting for the previous response before continuing. A busy conversation is never interrupted.
+Titan checks the selected conversation on a configurable interval (1–1,440 minutes; default 10). When it sees a new user task and ChatGPT is idle, it asks for exactly ten ordered, verifiable subtasks in a strict JSON shape. It validates the plan, then attempts one subtask prompt per interval without waiting for the previous response. Each UI-accepted prompt may queue while ChatGPT is generating; if the UI refuses it, the attempt is recorded and the schedule advances. The runner does not wait for the previous response or stop merely because generation is active. It submits through the visible composer; it cannot force ChatGPT to accept a prompt when the UI disables or rejects submission.
 
 The bound browser tab ID is the conversation identity. Changing the active tab causes the runner to pause on identity mismatch. Keep the ChatGPT extension side panel open while the runner is active so the background service worker can request a probe or send a prompt through the side-panel bridge.
 
@@ -20,9 +20,10 @@ This first version controls the ChatGPT extension's own side-panel conversation 
 
 Chrome alarms wake the Manifest V3 service worker while Chrome is running. They do not wake a sleeping computer. If the conversation is generating at an alarm, the runner defers by one interval. If the side panel is closed, its bridge cannot answer until the panel is open again.
 
-Ambiguous sends pause for review instead of risking a duplicate prompt. A lost tab binding or invalid ten-item plan also pauses. Pause, rebind, and clear remain user-controlled. Rebinding preserves an unfinished response batch in bounded history. Received model responses are recorded as responses, not independent verification.
+Send attempts are checked against the visible conversation UI. The runner records UI acceptance separately from model completion and marks unconfirmed attempts. It does not claim that an attempted prompt was completed. A lost tab binding or invalid ten-item plan also pauses. Pause, rebind, and clear remain user-controlled. Rebinding preserves an unfinished response batch in bounded history. Received model responses are recorded as responses, not independent verification.
 
 ## Data flow
 
 - Titan persists the bound active-tab identity, interval, ten subtask titles/instructions/statuses, response excerpts, errors, and bounded history in existing local state.
 - No new network service, API credential, Dots endpoint, GitHub mutation, or telemetry is introduced.
+
