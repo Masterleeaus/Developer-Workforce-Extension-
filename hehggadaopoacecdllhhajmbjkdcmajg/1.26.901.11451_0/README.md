@@ -14,7 +14,7 @@ Do not load the repository root; the manifest is nested in this package director
 
 ## Single-tab task runner (4.1.0)
 
-Open the Chrome side panel from the GitHub tab you want associated with the task. Bind that active tab, click **Use ChatGPT**, and enter the task in this extension's ChatGPT conversation. Titan asks for exactly ten ordered subtasks, then sends one subtask per configured interval after the prior response completes. The minimum interval is one minute. Keep the side panel open while it runs. The runner pauses on ambiguous sends, an invalid plan, or a lost tab binding. It uses MV3 alarms; Chrome can wake the extension worker while running, but alarms do not wake a sleeping computer. See the repository-root `SINGLE-TAB-DOTS-RUNNER.md` for the operating boundaries and data flow.
+Open the Chrome side panel from the GitHub tab you want associated with the task. Bind that active tab, click **Use ChatGPT**, and enter the task in this extension's ChatGPT conversation. Titan asks for exactly ten ordered subtasks, then attempts one subtask submission at every configured interval without waiting for earlier responses. The UI may reject a send while busy; rejected attempts are recorded, and the runner advances on schedule. The minimum interval is one minute. Keep the side panel open while it runs. The runner pauses on an invalid plan or a lost tab binding. It records each send as UI-accepted or attempted-but-unconfirmed; it cannot force ChatGPT to accept a prompt if its composer refuses it. It uses MV3 alarms; Chrome can wake the extension worker while running, but alarms do not wake a sleeping computer. See the repository-root `SINGLE-TAB-DOTS-RUNNER.md` for the operating boundaries and data flow.
 
 The runner controls the ChatGPT extension side-panel conversation through an in-extension bridge. It does not call a Dots, Work, or Codex API or bind a separate ChatGPT browser tab.
 
@@ -29,3 +29,4 @@ Titan 5×5 supervisor and extension runtime notes are in the root repository's `
 ## Security
 
 Inspect `manifest.json` permissions before install. Use a clean test profile, do not include personal browser data in test cases, and confirm the final bundle contains no developer credentials or temporary build artifacts.
+
