@@ -17,9 +17,9 @@ now+=120_000;observation={assistantCount:1,generating:false,lastText:"",lastUser
 assert.equal((await pump.tick()).action,"plan-requested");assert.equal(sent.length,1);
 observation={assistantCount:2,generating:false,lastText:JSON.stringify(batch),lastUserText:"Fix the login bug"};now+=120_000;
 assert.equal((await pump.tick()).action,"plan-accepted");assert.equal(pump.status().subtasks.length,10);
-now+=120_000;assert.equal((await pump.tick()).action,"subtask-dispatched");assert.equal(sent.length,2);
-observation={assistantCount:3,generating:false,lastText:"Task 1 done; tests pass",lastUserText:"Fix the login bug"};now+=120_000;
-assert.equal((await pump.tick()).action,"subtask-dispatched");assert.equal(pump.status().subtasks[0].status,"response_received");assert.equal(sent.length,3);
+now+=120_000;assert.equal((await pump.tick()).action,"subtask-ui-accepted");assert.equal(sent.length,2);
+observation={assistantCount:2,generating:true,lastText:"",lastUserText:"Fix the login bug"};now+=120_000;
+assert.equal((await pump.tick()).action,"subtask-ui-accepted");assert.equal(pump.status().subtasks[0].status,"accepted_by_ui");assert.equal(pump.status().subtasks[1].status,"accepted_by_ui");assert.equal(sent.length,3);
 const status=pump.status();await assert.rejects(()=>pump.bind({key:"https://chatgpt.com/c/other",tabId:8}),/Pause/);
 await pump.pause();await pump.bind({key:"https://chatgpt.com/c/other",tabId:8});
 assert.equal(pump.status().conversation.key,"https://chatgpt.com/c/other");
@@ -33,7 +33,7 @@ let activeTab={id:42,windowId:2,title:"GitHub issue",url:"https://github.com/acm
 const bridgeCalls=[];
 const panelService=createSidepanelConversationService({tabs:{query:async()=>[{...activeTab}]},request:async(action,payload)=>{
   bridgeCalls.push({action,payload});
-  if(action==="probe")return {composerReady:true,generating:false,assistantCount:0,lastText:"",lastUserText:""};
+  if(action==="probe")return {composerReady:true,generating:true,assistantCount:0,lastText:"",lastUserText:""};
   if(action==="send")return {ok:true,sent:true};
 }});
 const panelConversation=await panelService.currentConversation();
@@ -43,3 +43,4 @@ assert.ok(bridgeCalls.some(x=>x.action==="send"));
 activeTab={...activeTab,id:43};
 await assert.rejects(()=>panelService.observe(panelConversation),e=>e.code==="CONVERSATION_IDENTITY_MISMATCH");
 console.log("Single-tab task pump tests PASS");
+
