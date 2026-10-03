@@ -12,13 +12,14 @@ export function pageProbe(){
 export async function sendPrompt(text){
  const el=document.querySelector('#prompt-textarea,[contenteditable="true"][data-lexical-editor="true"],textarea');if(!el)return false;
  const existing=String(el.value??el.innerText??"").trim();if(existing)return false;
- const before=pageProbe();
+ const readUsers=()=>{const users=[...document.querySelectorAll('[data-message-author-role="user"]')];return {count:users.length,lastText:users.at(-1)?.innerText||""}};
+ const before=readUsers();
  el.focus();if(el.tagName==="TEXTAREA"){el.value=text;el.dispatchEvent(new Event("input",{bubbles:true}))}else{document.execCommand("insertText",false,text);el.dispatchEvent(new InputEvent("input",{bubbles:true,inputType:"insertText",data:text}))}
  const b=document.querySelector('[data-testid="send-button"],button[aria-label*="Send" i],button[aria-label*="Queue" i]');
  if(b&&!b.disabled)b.click();else el.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",code:"Enter",bubbles:true,cancelable:true}));
  await new Promise(resolve=>setTimeout(resolve,250));
- const after=pageProbe(),composer=document.querySelector('#prompt-textarea,[contenteditable="true"][data-lexical-editor="true"],textarea');
- const accepted=Number(after?.userCount||0)>Number(before?.userCount||0)||String(after?.lastUserText||"").includes(String(text).slice(0,120))||!String(composer?.value??composer?.innerText??"").trim();
+ const after=readUsers(),composer=document.querySelector('#prompt-textarea,[contenteditable="true"][data-lexical-editor="true"],textarea');
+ const accepted=Number(after.count||0)>Number(before.count||0)||String(after.lastText||"").includes(String(text).slice(0,120))||!String(composer?.value??composer?.innerText??"").trim();
  if(accepted)return true;
  if(composer&&String(composer.value??composer.innerText??"").trim()===String(text).trim()){
   composer.focus();if(composer.tagName==="TEXTAREA")composer.value="";else composer.textContent="";
