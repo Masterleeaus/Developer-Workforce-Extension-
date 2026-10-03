@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import {TitanSingleTabTaskPump,parseTenTaskBatch} from "../../hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/single-tab-task-pump.js";
-import {createSidepanelConversationService} from "../../hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/conversation-service.js";
+import {createSidepanelConversationService,sendPrompt} from "../../hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/conversation-service.js";
 
 const batch={type:"titan_task_batch",subtasks:Array.from({length:10},(_,i)=>({id:`S${i+1}`,title:`Task ${i+1}`,instruction:`Do task ${i+1}`,done_when:`Task ${i+1} is verified`}))};
 assert.equal(parseTenTaskBatch(JSON.stringify(batch)).length,10);
@@ -42,5 +42,25 @@ await panelService.send({conversation:panelConversation,instruction:"Run one ste
 assert.ok(bridgeCalls.some(x=>x.action==="send"));
 activeTab={...activeTab,id:43};
 await assert.rejects(()=>panelService.observe(panelConversation),e=>e.code==="CONVERSATION_IDENTITY_MISMATCH");
+
+const previousDocument=globalThis.document,previousInputEvent=globalThis.InputEvent,previousKeyboardEvent=globalThis.KeyboardEvent;
+globalThis.InputEvent=class extends Event{};globalThis.KeyboardEvent=class extends Event{};
+let uiGenerating=true,userMessages=[],composerText="",acceptedClicks=0,buttonDisabled=false;
+const mockComposer={tagName:"DIV",focus(){},dispatchEvent(){},get innerText(){return composerText},set innerText(v){composerText=v},set textContent(v){composerText=v}};
+const mockButton={get disabled(){return buttonDisabled},click(){acceptedClicks++;userMessages.push(composerText);composerText=""}};
+globalThis.document={
+  querySelector(selector){if(selector.includes("stop-button"))return uiGenerating?{}:null;if(selector.includes("prompt-textarea"))return mockComposer;if(selector.includes("send-button"))return mockButton;return null},
+  querySelectorAll(selector){if(selector.includes('author-role="assistant"'))return [];if(selector.includes('author-role="user"'))return userMessages.map(text=>({innerText:text}));return []},
+  execCommand(command,_ui,value){if(command==="insertText")composerText=value;return true}
+};
+assert.equal(await sendPrompt("scheduled hard send"),true,"active generation does not block a UI-accepted send");
+assert.equal(acceptedClicks,1);
+buttonDisabled=true;
+assert.equal(await sendPrompt("blocked submission"),false,"a disabled composer is not reported as sent");
+assert.equal(composerText,"","an unaccepted prompt does not block later scheduled attempts");
+globalThis.document=previousDocument;
+if(previousInputEvent===undefined)delete globalThis.InputEvent;else globalThis.InputEvent=previousInputEvent;
+if(previousKeyboardEvent===undefined)delete globalThis.KeyboardEvent;else globalThis.KeyboardEvent=previousKeyboardEvent;
+
 console.log("Single-tab task pump tests PASS");
 
