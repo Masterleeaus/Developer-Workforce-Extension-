@@ -63,7 +63,8 @@ export class TitanRuntimeOwner{
    if(existing)await this.alarms.clear?.(SINGLE_TAB_TASK_ALARM);
    return false;
   }
-  const period=Math.max(1,Number(taskState.intervalMinutes)||10);
+  const interval=taskState.retryPending?taskState.retryIntervalMinutes:taskState.intervalMinutes;
+  const period=Math.max(1,Number(interval)||10);
   if(existing&&Number(existing.periodInMinutes)===period)return true;
   if(existing)await this.alarms.clear?.(SINGLE_TAB_TASK_ALARM);
   await this.alarms.create(SINGLE_TAB_TASK_ALARM,{delayInMinutes:period,periodInMinutes:period});
@@ -184,3 +185,4 @@ export class TitanRuntimeOwner{
   this.tickPromise=null;
  }
 }
+
