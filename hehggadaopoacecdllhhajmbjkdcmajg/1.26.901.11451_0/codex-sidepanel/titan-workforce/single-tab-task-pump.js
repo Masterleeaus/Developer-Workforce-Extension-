@@ -117,13 +117,12 @@ export class TitanSingleTabTaskPump{
       const observation=await this.conversationService.observe(conversation);
       this.state.lastCheckAt=now;
       this.state.nextRunAt=now+this.state.intervalMinutes*60000;
-      if(observation?.generating){await this.save();return {action:"waiting",reason:"CONVERSATION_BUSY"}}
+      if(observation?.generating&&this.state.phase==="awaiting_plan"){await this.save();return {action:"waiting",reason:"PLAN_RESPONSE_STILL_GENERATING"}}
       let action={action:"checked",phase:this.state.phase};
       if(this.state.phase==="awaiting_plan")action=this.acceptPlan(observation,now);
-      else if(this.state.phase==="awaiting_subtask")action=this.acceptSubtaskResult(observation,now);
       else if(this.state.phase==="waiting_delivery"&&now>=Number(this.state.nextDeliveryAt||0))action=await this.dispatchNext(observation,now);
       else if(this.state.phase==="watching")action=await this.detectTask(observation,now);
-      this.state.lastError=null;
+      if(action.action!=="subtask-attempted-unconfirmed")this.state.lastError=null;
       await this.save();
       return action;
     }catch(error){
@@ -190,8 +189,12 @@ export class TitanSingleTabTaskPump{
   }
   async dispatchNext(observation,now){
     const task=this.state.subtasks[this.state.currentIndex];
-    if(!task){this.state.phase="watching";this.state.sourceUserFingerprint=fingerprint(this.state.missionText);return {action:"batch-complete"}}
-    if(observation?.generating)return {action:"waiting",reason:"CONVERSATION_BUSY"};
+    if(!task){
+      this.state.phase="batch_dispatched";
+      this.state.nextDeliveryAt=null;
+      this.audit("single-tab-task-batch-prompts-attempted",{count:this.state.subtasks.length});
+      return {action:"batch-dispatched",count:this.state.subtasks.length};
+    }
     const number=this.state.currentIndex+1;
     const prompt=[
       `TITAN SINGLE-TAB SUBTASK ${number}/10`,
@@ -200,47 +203,36 @@ export class TitanSingleTabTaskPump{
       `TASK: ${task.instruction}`,
       `DONE WHEN: ${task.doneWhen}`,
       "Work only on this subtask in the current repository/conversation context. Do not start another subtask.",
-      "At the end, report what changed, evidence/checks, whether the done condition is met, and any blocker."
+      "Use the existing conversation context, including work and responses already present. At the end, report what changed, evidence/checks, whether the done condition is met, and any blocker."
     ].join("\n");
-    task.status="in_progress";task.dispatchedAt=now;
-    this.state.baselineAssistantCount=Number(observation?.assistantCount||0);
-    this.state.phase="awaiting_subtask";
-    this.state.pendingSubtaskId=task.id;
+    task.status="send_attempted";task.dispatchedAt=now;
     this.state.lastActionAt=now;
     const key=`${this.state.sourceUserFingerprint}/${task.id}`;
     await this.save();
+    let result;
     try{
-      await this.conversationService.send({conversation:this.state.conversation,instruction:prompt,idempotencyKey:key});
+      result=await this.conversationService.send({conversation:this.state.conversation,instruction:prompt,idempotencyKey:key});
+      task.status="accepted_by_ui";
+      task.uiAcceptedAt=now;
+      this.audit("single-tab-subtask-submitted",{subtaskId:task.id,number,conversationKey:this.state.conversation.key,idempotencyKey:key});
     }catch(error){
-      // A failed send can be ambiguous: the page may have accepted it before
-      // the bridge failed. Stop for review instead of risking a duplicate.
-      task.status="send_uncertain";
-      this.state.enabled=false;
-      this.state.phase="send_uncertain";
-      this.state.nextRunAt=null;
-      this.state.lastError={code:error?.code||"SEND_UNCERTAIN",message:String(error?.message||error),at:now,subtaskId:task.id};
-      await this.save();
-      this.audit("single-tab-subtask-send-uncertain",{subtaskId:task.id,conversationKey:this.state.conversation.key});
-      return {action:"paused-for-review",reason:"SEND_UNCERTAIN",subtaskId:task.id};
+      task.status="send_attempt_failed";
+      task.sendError={code:error?.code||"SEND_FAILED",message:String(error?.message||error),at:now};
+      this.state.lastError={...task.sendError,subtaskId:task.id};
+      this.audit("single-tab-subtask-send-attempt-failed",{subtaskId:task.id,number,code:task.sendError.code,message:task.sendError.message});
     }
-    this.state.lastSeenUserFingerprint=fingerprint(prompt);
-    this.audit("single-tab-subtask-dispatched",{subtaskId:task.id,number,conversationKey:this.state.conversation.key,idempotencyKey:key});
-    return {action:"subtask-dispatched",subtaskId:task.id,number};
-  }
-  async acceptSubtaskResult(observation,now){
-    if(Number(observation?.assistantCount||0)<=this.state.baselineAssistantCount||!String(observation?.lastText||"").trim())return {action:"waiting",reason:"SUBTASK_NOT_READY"};
-    const task=this.state.subtasks[this.state.currentIndex];
-    if(!task)return {action:"error",reason:"CURRENT_SUBTASK_MISSING"};
-    task.status="response_received";task.result=String(observation.lastText||"").slice(-SINGLE_TAB_TASK_DEFAULTS.maxResultCharacters);task.responseReceivedAt=now;
-    this.state.currentIndex+=1;this.state.pendingSubtaskId=null;this.state.baselineAssistantCount=Number(observation.assistantCount||0);
+    this.state.currentIndex+=1;
+    this.state.pendingSubtaskId=null;
     if(this.state.currentIndex>=this.state.subtasks.length){
-      this.state.history.push({taskFingerprint:this.state.sourceUserFingerprint,missionText:this.state.missionText,allResponsesReceivedAt:now,subtasks:this.state.subtasks});
-      this.state.history=this.state.history.slice(-20);this.state.phase="watching";
-      this.audit("single-tab-task-batch-responses-received",{count:this.state.subtasks.length});
-      return {action:"batch-responses-received",lastSubtask:task.id};
+      this.state.phase="batch_dispatched";
+      this.state.nextDeliveryAt=null;
+    }else{
+      this.state.phase="waiting_delivery";
+      this.state.nextDeliveryAt=now+this.state.intervalMinutes*60000;
     }
-    this.state.phase="waiting_delivery";this.state.nextDeliveryAt=now;
-    this.audit("single-tab-subtask-response-received",{subtaskId:task.id,nextIndex:this.state.currentIndex+1,nextDeliveryAt:this.state.nextDeliveryAt});
-    return await this.dispatchNext(observation,now);
+    await this.save();
+    return {action:task.status==="accepted_by_ui"?"subtask-ui-accepted":"subtask-attempted-unconfirmed",subtaskId:task.id,number,sendConfirmed:task.status==="accepted_by_ui",nextDeliveryAt:this.state.nextDeliveryAt};
   }
+
 }
+
