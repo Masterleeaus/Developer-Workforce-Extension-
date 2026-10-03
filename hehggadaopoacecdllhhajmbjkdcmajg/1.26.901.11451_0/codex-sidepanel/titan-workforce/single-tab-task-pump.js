@@ -25,6 +25,15 @@ export function initialSingleTabTaskState(){
     lastCheckAt:null,
     lastActionAt:null,
     lastError:null,
+    retryPending:false,
+    retryTaskIndex:null,
+    retryPasses:0,
+    retryIntervalMinutes:5,
+    maxRetryPasses:5,
+    retryNextAt:null,
+    retryLog:[],
+    lastProbeSummary:null,
+    diagnosticReport:null,
     history:[]
   };
 }
@@ -56,6 +65,30 @@ function fingerprint(value){
   let h=2166136261;
   for(const ch of String(value||"")){h^=ch.charCodeAt(0);h=Math.imul(h,16777619)}
   return `u${(h>>>0).toString(16)}`;
+}
+function summarizeProbe(probe,at=Date.now()){
+  if(!probe)return null;
+  return {
+    at,pageOrigin:probe.pageOrigin||null,pagePath:probe.pagePath||null,
+    documentReadyState:probe.documentReadyState||null,visibilityState:probe.visibilityState||null,
+    userAgent:probe.userAgent||null,language:probe.language||null,
+    composerReady:!!probe.composerReady,composerTag:probe.composerTag||null,composerId:probe.composerId||null,
+    composerDisabled:!!probe.composerDisabled,composerTextLength:String(probe.composerText||"").length,
+    sendButtonFound:!!probe.sendButtonFound,sendButtonDisabled:!!probe.sendButtonDisabled,sendButtonLabel:probe.sendButtonLabel||null,
+    generating:!!probe.generating,stopButtonFound:!!probe.stopButtonFound,stopButtonLabel:probe.stopButtonLabel||null,
+    userCount:Number(probe.userCount||0),assistantCount:Number(probe.assistantCount||0),
+    lastUserTextLength:Number(probe.lastUserTextLength||String(probe.lastUserText||"").length),
+    lastAssistantTextLength:Number(probe.lastAssistantTextLength||String(probe.lastText||"").length)
+  };
+}
+export function analyzeSingleTabDiagnostic(report){
+  const code=String(report?.failure?.code||""),probe=report?.probe||{};
+  let classification="chatgpt_ui_send_failure",likelyCause="The visible composer did not confirm the scheduled prompt.",nextSteps=["Reopen the ChatGPT extension side panel on the bound tab.","Check whether the selected Chat, Work, or Codex view exposes a usable composer.","Review the send-attempt timeline before restarting to avoid duplicate work."];
+  if(code.includes("PANEL_CONVERSATION_UNAVAILABLE")||code.includes("PANEL_BRIDGE")){classification="side_panel_bridge_unavailable";likelyCause="The background runner could not reach the ChatGPT side-panel bridge.";nextSteps=["Reopen the ChatGPT extension side panel.","Confirm the extension is enabled and reload it if needed.","Rebind the active host tab and restart the runner."]}
+  else if(code.includes("IDENTITY")||code.includes("NO_TAB")){classification="bound_tab_unavailable";likelyCause="The bound tab was changed, closed, or could not be addressed during retries.";nextSteps=["Restore the original tab or bind the intended tab again.","Check whether Chrome discarded or closed the page."]}
+  else if(!probe.composerReady){classification="composer_not_detected";likelyCause="The active ChatGPT extension view did not expose a composer matching the supported selectors.";nextSteps=["Open a supported ChatGPT conversation view.","Keep the side panel open and rebind the host tab.","If this is Work or Codex mode, capture the view-specific composer structure for a targeted adapter."]}
+  else if(probe.generating&&probe.sendButtonDisabled){classification="composer_busy_or_queue_unsupported";likelyCause="ChatGPT was generating and the visible send/queue control remained disabled.";nextSteps=["Wait for the model to finish, or use a view that supports queued prompts.","Do not assume an unconfirmed attempt reached ChatGPT."]}
+  return {classification,likelyCause,nextSteps};
 }
 
 export class TitanSingleTabTaskPump{
@@ -116,16 +149,24 @@ export class TitanSingleTabTaskPump{
       await this.conversationService.assertConversation(conversation);
       const observation=await this.conversationService.observe(conversation);
       this.state.lastCheckAt=now;
-      this.state.nextRunAt=now+this.state.intervalMinutes*60000;
+      this.state.lastProbeSummary=summarizeProbe(observation,now);
+      this.state.nextRunAt=now+(this.state.retryPending?this.state.retryIntervalMinutes:this.state.intervalMinutes)*60000;
       if(observation?.generating&&this.state.phase==="awaiting_plan"){await this.save();return {action:"waiting",reason:"PLAN_RESPONSE_STILL_GENERATING"}}
       let action={action:"checked",phase:this.state.phase};
-      if(this.state.phase==="awaiting_plan")action=this.acceptPlan(observation,now);
+      if(this.state.retryPending&&now>=Number(this.state.retryNextAt||0))action=await this.dispatchNext(observation,now);
+      else if(this.state.phase==="awaiting_plan")action=this.acceptPlan(observation,now);
       else if(this.state.phase==="waiting_delivery"&&now>=Number(this.state.nextDeliveryAt||0))action=await this.dispatchNext(observation,now);
       else if(this.state.phase==="watching")action=await this.detectTask(observation,now);
-      if(action.action!=="subtask-attempted-unconfirmed")this.state.lastError=null;
+      if(!["subtask-attempted-unconfirmed","retry-scheduled","sleep-and-diagnostic"].includes(action.action))this.state.lastError=null;
       await this.save();
       return action;
     }catch(error){
+      if(this.state.retryPending){
+        const action=await this.recordRetryFailure(error,now,"bridge_or_probe");
+        await this.save();
+        return action;
+      }
+      if(this.state.phase==="waiting_delivery"&&this.state.subtasks?.[this.state.currentIndex])return this.startRetryFromError(error,now,"bridge_or_probe");
       this.state.lastError={code:error?.code||"TASK_PUMP_ERROR",message:String(error?.message||error),at:now};
       if(this.state.phase==="awaiting_plan"&&/Plan|Subtask|JSON/i.test(this.state.lastError.message)){
         this.state.enabled=false;
@@ -188,50 +229,106 @@ export class TitanSingleTabTaskPump{
     return {action:"plan-accepted",subtaskCount:tasks.length,nextDeliveryAt:this.state.nextDeliveryAt};
   }
   async dispatchNext(observation,now){
-    const task=this.state.subtasks[this.state.currentIndex];
-    if(!task){
-      this.state.phase="batch_dispatched";
-      this.state.nextDeliveryAt=null;
-      this.audit("single-tab-task-batch-prompts-attempted",{count:this.state.subtasks.length});
-      return {action:"batch-dispatched",count:this.state.subtasks.length};
+    const task=this.state.subtasks[this.state.retryPending?this.state.retryTaskIndex:this.state.currentIndex];
+    if(!task){this.state.phase="batch_dispatched";this.state.nextDeliveryAt=null;return {action:"batch-dispatched",count:this.state.subtasks.length}}
+    const retrying=!!this.state.retryPending;
+    const number=(this.state.retryPending?this.state.retryTaskIndex:this.state.currentIndex)+1;
+    const runKey=`${this.state.sourceUserFingerprint}/${task.id}`;
+    const marker=`SEND KEY: ${runKey}`;
+    if(retrying&&String(observation?.lastUserText||"").includes(marker)){
+      return this.acceptTaskSubmission(task,number,now,true);
     }
-    const number=this.state.currentIndex+1;
     const prompt=[
       `TITAN SINGLE-TAB SUBTASK ${number}/10`,
       `ID: ${task.id}`,
+      marker,
       `TITLE: ${task.title}`,
       `TASK: ${task.instruction}`,
       `DONE WHEN: ${task.doneWhen}`,
       "Work only on this subtask in the current repository/conversation context. Do not start another subtask.",
       "Use the existing conversation context, including work and responses already present. At the end, report what changed, evidence/checks, whether the done condition is met, and any blocker."
     ].join("\n");
-    task.status="send_attempted";task.dispatchedAt=now;
-    this.state.lastActionAt=now;
-    const key=`${this.state.sourceUserFingerprint}/${task.id}`;
+    task.status="send_attempted";task.dispatchedAt=now;this.state.lastActionAt=now;
     await this.save();
-    let result;
     try{
-      result=await this.conversationService.send({conversation:this.state.conversation,instruction:prompt,idempotencyKey:key});
-      task.status="accepted_by_ui";
-      task.uiAcceptedAt=now;
-      this.audit("single-tab-subtask-submitted",{subtaskId:task.id,number,conversationKey:this.state.conversation.key,idempotencyKey:key});
+      const result=await this.conversationService.send({conversation:this.state.conversation,instruction:prompt,idempotencyKey:runKey});
+      if(result?.ok===false)throw Object.assign(new Error("Visible ChatGPT UI did not accept the prompt"),{code:"PANEL_SEND_UNCONFIRMED"});
+      return this.acceptTaskSubmission(task,number,now,false);
     }catch(error){
-      task.status="send_attempt_failed";
-      task.sendError={code:error?.code||"SEND_FAILED",message:String(error?.message||error),at:now};
+      task.status="retry_pending";
+      task.sendError={code:error?.code||"SEND_UNCONFIRMED",message:String(error?.message||error),at:now};
       this.state.lastError={...task.sendError,subtaskId:task.id};
-      this.audit("single-tab-subtask-send-attempt-failed",{subtaskId:task.id,number,code:task.sendError.code,message:task.sendError.message});
+      this.audit("single-tab-subtask-send-attempt-failed",{subtaskId:task.id,number,retrying,code:task.sendError.code,message:task.sendError.message});
+      if(retrying)return this.recordRetryFailure(error,now,"send");
+      this.state.retryPending=true;this.state.retryTaskIndex=this.state.currentIndex;this.state.retryPasses=0;
+      this.state.retryNextAt=now+this.state.retryIntervalMinutes*60000;this.state.phase="retry_wait";
+      this.state.nextRunAt=this.state.retryNextAt;
+      this.state.retryLog=[...(this.state.retryLog||[]),{at:now,pass:0,subtaskId:task.id,code:task.sendError.code,message:task.sendError.message,probe:clone(this.state.lastProbeSummary)}].slice(-20);
+      await this.save();
+      return {action:"retry-scheduled",subtaskId:task.id,retryAt:this.state.retryNextAt,retryPass:0};
     }
-    this.state.currentIndex+=1;
-    this.state.pendingSubtaskId=null;
-    if(this.state.currentIndex>=this.state.subtasks.length){
-      this.state.phase="batch_dispatched";
-      this.state.nextDeliveryAt=null;
-    }else{
-      this.state.phase="waiting_delivery";
-      this.state.nextDeliveryAt=now+this.state.intervalMinutes*60000;
-    }
+  }
+  async acceptTaskSubmission(task,number,now,recovered=false){
+    task.status=recovered?"accepted_by_ui_recovered":"accepted_by_ui";task.uiAcceptedAt=now;
+    task.sendError=null;this.state.currentIndex=Math.max(this.state.currentIndex,this.state.retryTaskIndex??this.state.currentIndex)+1;
+    this.state.retryPending=false;this.state.retryTaskIndex=null;this.state.retryPasses=0;this.state.retryNextAt=null;
+    this.state.phase=this.state.currentIndex>=this.state.subtasks.length?"batch_dispatched":"waiting_delivery";
+    this.state.nextDeliveryAt=this.state.phase==="waiting_delivery"?now+this.state.intervalMinutes*60000:null;
+    this.state.nextRunAt=this.state.phase==="waiting_delivery"?this.state.nextDeliveryAt:now+this.state.intervalMinutes*60000;
+    this.state.lastError=null;
+    this.audit("single-tab-subtask-submitted",{subtaskId:task.id,number,recovered,conversationKey:this.state.conversation.key});
     await this.save();
-    return {action:task.status==="accepted_by_ui"?"subtask-ui-accepted":"subtask-attempted-unconfirmed",subtaskId:task.id,number,sendConfirmed:task.status==="accepted_by_ui",nextDeliveryAt:this.state.nextDeliveryAt};
+    return {action:recovered?"subtask-ui-acceptance-recovered":"subtask-ui-accepted",subtaskId:task.id,number,recovered,nextDeliveryAt:this.state.nextDeliveryAt};
+  }
+  async startRetryFromError(error,now,stage){
+    const task=this.state.subtasks[this.state.currentIndex];
+    const failure={code:error?.code||"SEND_UNCONFIRMED",message:String(error?.message||error),at:now,stage};
+    task.status="retry_pending";task.sendError=failure;this.state.lastError={...failure,subtaskId:task.id};
+    this.state.retryPending=true;this.state.retryTaskIndex=this.state.currentIndex;this.state.retryPasses=0;
+    this.state.retryNextAt=now+this.state.retryIntervalMinutes*60000;this.state.phase="retry_wait";this.state.nextRunAt=this.state.retryNextAt;
+    this.state.retryLog=[...(this.state.retryLog||[]),{at:now,pass:0,subtaskId:task.id,...failure,probe:clone(this.state.lastProbeSummary)}].slice(-20);
+    this.audit("single-tab-subtask-retry-started",{subtaskId:task.id,stage,code:failure.code});
+    await this.save();
+    return {action:"retry-scheduled",subtaskId:task.id,retryAt:this.state.retryNextAt,retryPass:0};
+  }
+  async recordRetryFailure(error,now,stage){
+    this.state.retryPasses=Number(this.state.retryPasses||0)+1;
+    const task=this.state.subtasks[this.state.retryTaskIndex];
+    const failure={code:error?.code||"RETRY_FAILED",message:String(error?.message||error),at:now,stage};
+    this.state.lastError={...failure,subtaskId:task?.id||null};
+    if(task){task.status="retry_pending";task.sendError=failure}
+    this.state.retryLog=[...(this.state.retryLog||[]),{at:now,pass:this.state.retryPasses,subtaskId:task?.id||null,...failure,probe:clone(this.state.lastProbeSummary)}].slice(-20);
+    this.audit("single-tab-subtask-retry-failed",{subtaskId:task?.id||null,retryPass:this.state.retryPasses,stage,code:failure.code});
+    if(this.state.retryPasses>=this.state.maxRetryPasses)return this.sleepAndReport(failure,now);
+    this.state.retryNextAt=now+this.state.retryIntervalMinutes*60000;this.state.nextRunAt=this.state.retryNextAt;this.state.phase="retry_wait";
+    await this.save();
+    return {action:"retry-scheduled",subtaskId:task?.id||null,retryPass:this.state.retryPasses,retryAt:this.state.retryNextAt};
+  }
+  async sleepAndReport(failure,now){
+    const currentTask=this.state.subtasks[this.state.retryTaskIndex];
+    const conversation=this.state.conversation||{};
+    let origin=null;try{origin=new URL(conversation.url||"").origin}catch{}
+    const report={
+      schemaVersion:1,createdAt:now,trigger:"five_retry_passes_failed",failure:{...failure},
+      conversation:{tabId:conversation.tabId??null,windowId:conversation.windowId??null,origin,key:conversation.key||null},
+      subtask:{id:currentTask?.id||null,index:Number(this.state.retryTaskIndex)+1,total:this.state.subtasks.length},
+      retry:{intervalMinutes:this.state.retryIntervalMinutes,failedRetryPasses:this.state.retryPasses,maxRetryPasses:this.state.maxRetryPasses,attempts:clone(this.state.retryLog||[])},
+      probe:clone(this.state.lastProbeSummary),
+      extension:{version:globalThis.chrome?.runtime?.getManifest?.().version||null,userAgent:globalThis.navigator?.userAgent||null},
+      sleep:{attempted:false,success:false,reason:"TAB_DISCARD_NOT_ATTEMPTED"}
+    };
+    Object.assign(report,analyzeSingleTabDiagnostic(report));
+    this.state.enabled=false;this.state.retryPending=false;this.state.retryNextAt=null;this.state.nextRunAt=null;this.state.phase="sleep_after_retry_failures";this.state.diagnosticReport=report;
+    await this.save();
+    try{
+      const sleep=await this.conversationService.sleepTab?.(this.state.conversation);
+      report.sleep=sleep||{attempted:false,success:false,reason:"TAB_SLEEP_ADAPTER_UNAVAILABLE"};
+    }catch(error){report.sleep={attempted:true,success:false,reason:String(error?.message||error)}}
+    report.sleepNote=report.sleep.success?"Bound tab discarded from memory; it reloads when opened.":report.sleep.reason==="ACTIVE_TAB_CANNOT_BE_DISCARDED"?"Chrome does not allow discarding the active tab. Runner is parked; switch away before manually sleeping the tab.":"Runner is parked, but Chrome did not discard the bound tab.";
+    this.state.diagnosticReport=report;this.state.lastError={code:"RETRIES_EXHAUSTED",message:report.sleepNote,at:now};
+    this.audit("single-tab-task-retries-exhausted",{subtaskId:currentTask?.id||null,diagnostic:report.classification,sleep:report.sleep});
+    await this.save();
+    return {action:"sleep-and-diagnostic",subtaskId:currentTask?.id||null,diagnostic:clone(report)};
   }
 
 }
