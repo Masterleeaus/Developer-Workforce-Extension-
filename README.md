@@ -14,19 +14,19 @@ This repository evolves Titan Code 3 into a development workforce with explicit 
 
 Use a clean Chrome test profile and review extension permissions before loading the unpacked build.
 
-1. Open \`chrome://extensions\` in Chrome or another Chromium-based browser.
+1. Open `chrome://extensions` in Chrome or another Chromium-based browser.
 2. Enable **Developer mode**.
-3. Select **Load unpacked** and choose the directory containing \`manifest.json\`.
+3. Select **Load unpacked** and choose the directory containing `manifest.json`.
 4. Reload the extension after source changes.
 
 From the repository root, use Node.js 22 (the CI workflow's runtime) for the bounded local checks:
 
-\`\`\`bash
+```bash
 node -e "JSON.parse(require('fs').readFileSync('hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/manifest.json','utf8')); console.log('manifest PASS')"
 node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/tests/package-integrity.test.js
 node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/titan-work-codex-pipeline-selftest.js
 node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/core-selftest.mjs
-\`\`\`
+```
 
 The full regression map is [developer-workforce-regression.yml](.github/workflows/developer-workforce-regression.yml). Acceptance certification, packaging and live extension smoke are separate evidence lanes.
 
