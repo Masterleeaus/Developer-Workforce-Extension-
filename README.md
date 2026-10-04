@@ -1,4 +1,4 @@
-![Titan Developer Workforce Extension — BROWSER EXTENSION · ENGINEERING WORKFORCE](docs/images/portfolio-banner.svg)
+![Titan Developer Workforce Extension — BROWSER EXTENSION · ENGINEERING WORKFORCE](docs/images/developer-workforce-banner.svg)
 
 <div align="center">
 
@@ -69,6 +69,14 @@ Start with:
 - [Workstreams](WORKSTREAMS.md)
 - [Titan 5×5 architecture notes](hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/TITAN-5X5-README.md)
 - [Acceptance evidence contract](hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/TITAN-ACCEPTANCE-EVIDENCE.md)
+
+## Architecture
+
+<p align="center">
+  <img src="docs/images/developer-workforce-architecture.svg" alt="Developer Workforce Extension flow from MV3 manifest and background runtime through mission context, 15-slot workforce, capability controls, verification, observability, and recovery" width="100%" />
+</p>
+
+The graphic is a source-backed map of the extension runtime: composable profiles feed runtime workers, the control plane bounds authority, and verification/evidence remain explicit.
 
 ## Architecture and safety
 
