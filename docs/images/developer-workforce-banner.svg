@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360" role="img" aria-labelledby="title desc">
+  <title id="title">Titan Developer Workforce Extension</title>
+  <desc id="desc">A violet browser-extension banner showing a governed 15-slot workforce, control plane, evidence, and verification.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#131528"/><stop offset="1" stop-color="#69468a"/></linearGradient>
+    <linearGradient id="route" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#92e8ff"/><stop offset="1" stop-color="#e0b6ff"/></linearGradient>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse"><path d="M32 0H0V32" fill="none" stroke="#fff" stroke-opacity=".07"/></pattern>
+    <style>
+      .title{font:700 40px Segoe UI,Arial,sans-serif;fill:#faf8ff}.sub{font:600 15px Segoe UI,Arial,sans-serif;letter-spacing:2.3px;fill:#ebe0f8}.eyebrow{font:700 12px Segoe UI,Arial,sans-serif;letter-spacing:2.5px;fill:#a9e7ff}.label{font:700 12px Segoe UI,Arial,sans-serif;fill:#fff}.tiny{font:400 11px Segoe UI,Arial,sans-serif;fill:#d6c7e7}
+    </style>
+  </defs>
+  <rect width="1200" height="360" rx="22" fill="url(#bg)"/><rect width="1200" height="360" rx="22" fill="url(#grid)"/>
+  <circle cx="1080" cy="35" r="220" fill="#94e6ff" opacity=".10"/><circle cx="120" cy="395" r="220" fill="#d99bff" opacity=".11"/>
+  <text x="70" y="66" class="eyebrow">TITAN CODE 3 � MV3 BROWSER EXTENSION � 15 SLOTS</text>
+  <text x="70" y="125" class="title">Titan Developer Workforce Extension</text>
+  <text x="72" y="160" class="sub">PROFILES    WORKERS    CONTROL PLANE    VERIFIED OUTPUT</text>
+  <rect x="88" y="204" width="152" height="62" rx="10" fill="#292c5c" stroke="#98e6ff" stroke-width="2"/><rect x="104" y="216" width="120" height="36" rx="5" fill="#12162b" stroke="#fff" stroke-opacity=".22"/><circle cx="116" cy="228" r="3" fill="#91e8ff"/><circle cx="128" cy="228" r="3" fill="#e1b7ff"/><text x="164" y="242" text-anchor="middle" class="label">Extension</text>
+  <path d="M240 235H342" stroke="url(#route)" stroke-width="3"/>
+  <rect x="342" y="204" width="232" height="62" rx="10" fill="#3d3977" stroke="#d9b4ff" stroke-width="2"/><text x="458" y="229" text-anchor="middle" class="label">15-slot workforce</text><text x="458" y="247" text-anchor="middle" class="tiny">10 chat � 2 supervisors � 2 builders � 1 orchestrator</text>
+  <path d="M574 235H680" stroke="url(#route)" stroke-width="3"/>
+  <rect x="680" y="204" width="190" height="62" rx="10" fill="#3e5b80" stroke="#99e7ff" stroke-width="2"/><text x="775" y="229" text-anchor="middle" class="label">Control plane</text><text x="775" y="247" text-anchor="middle" class="tiny">authority � state � evidence</text>
+  <path d="M870 235H1025" stroke="url(#route)" stroke-width="3"/>
+  <rect x="1025" y="204" width="92" height="62" rx="10" fill="#4f3c6e" stroke="#e0b6ff" stroke-width="2"/><text x="1071" y="229" text-anchor="middle" class="label">Verify</text><text x="1071" y="247" text-anchor="middle" class="tiny">fail closed</text>
+  <text x="70" y="308" class="tiny">manifest � background runtime � side panel � mission/context compiler � observability � recovery</text>
+  <text x="70" y="342" class="tiny">Composable profiles are not additional live agents</text>
+</svg>
+
