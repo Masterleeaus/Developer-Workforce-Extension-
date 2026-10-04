@@ -39,15 +39,36 @@ The repository is under active migration; use a clean test browser profile and r
 
 ## Development and verification
 
-The extension includes browser-runtime tests and workforce module tests. Inspect the checked-in test scripts and workstream docs for the current authoritative commands; do not infer full acceptance from the manifest loading successfully.
+The extension includes browser-runtime tests and workforce module tests. The checked-in CI workflows are the authoritative map of supported checks; a manifest load alone is not evidence that the 15-slot workflow is complete.
+
+### Fast local checks
+
+From the repository root with Node.js 22 (the CI workflow uses Node 22):
+
+```bash
+node -e "JSON.parse(require('fs').readFileSync('hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/manifest.json','utf8')); console.log('manifest PASS')"
+node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/tests/package-integrity.test.js
+node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/titan-work-codex-pipeline-selftest.js
+node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/core-selftest.mjs
+```
+
+The full regression is defined in [developer-workforce-regression.yml](.github/workflows/developer-workforce-regression.yml); acceptance certification, packaging, and live extension smoke are separate workflows.
+
+### Code map
+
+- [`manifest.json`](hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/manifest.json) defines the MV3 entry points, permissions, side panel, and host access.
+- [`background.js`](hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/background.js) owns the extension background runtime and dynamic entrypoint wiring.
+- [`codex-sidepanel/titan-workforce/`](hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/) contains the 15-slot state, mission, review, verification, observability, and recovery modules.
+- [`tests/`](hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/tests/) contains package-integrity, runtime-smoke, and acceptance checks.
+
+The deterministic self-tests prove local contracts and state transitions. They do not prove provider-page compatibility, an authenticated live ChatGPT session, browser sleep/wake behavior, or release readiness; use the relevant workflow evidence before making those claims.
 
 Start with:
 
 - [Agent instructions](AGENTS.md)
 - [Workstreams](WORKSTREAMS.md)
-- [Titan Workforce README](hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/TITAN-5X5-README.md)
-
-The seed package is included under an opaque upstream extension ID and version path. It is retained as provenance material; rename or replace that path only through a reviewed migration that preserves extension packaging and source history.
+- [Titan 5×5 architecture notes](hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/TITAN-5X5-README.md)
+- [Acceptance evidence contract](hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/TITAN-ACCEPTANCE-EVIDENCE.md)
 
 ## Architecture and safety
 
