@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="860" viewBox="0 0 1500 860" role="img" aria-labelledby="title desc">
+  <title id="title">Titan Developer Workforce Extension architecture</title>
+  <desc id="desc">A browser extension flow from the MV3 manifest and background runtime through profiles, mission context, 15 workforce slots, capability controls, verification, observability, and recovery.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#131528"/><stop offset="1" stop-color="#5b407a"/></linearGradient>
+    <linearGradient id="flow" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#92e8ff"/><stop offset="1" stop-color="#e0b6ff"/></linearGradient>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M0 0L10 5L0 10" fill="#b7ebff"/></marker>
+    <style>
+      .eyebrow{font:700 13px Segoe UI,Arial,sans-serif;letter-spacing:2.2px;fill:#a9e7ff}.title{font:700 32px Segoe UI,Arial,sans-serif;fill:#faf8ff}.sub{font:400 15px Segoe UI,Arial,sans-serif;fill:#e2d8f1}.section{font:700 12px Segoe UI,Arial,sans-serif;letter-spacing:1.7px;fill:#cdbce4}.node{fill:#302d63;stroke:#645ca3;stroke-width:1.5}.strong{fill:#3e3979;stroke:#d9b4ff;stroke-width:2}.control{fill:#2c5273;stroke:#99e7ff;stroke-width:2}.verify{fill:#4f3c6e;stroke:#e0b6ff;stroke-width:2}.label{font:700 16px Segoe UI,Arial,sans-serif;fill:#fbfaff}.body{font:400 13px Segoe UI,Arial,sans-serif;fill:#ddd4ee}.tiny{font:400 12px Segoe UI,Arial,sans-serif;fill:#c3b8d7}.route{stroke:url(#flow);stroke-width:3;fill:none;marker-end:url(#arrow)}
+    </style>
+  </defs>
+  <rect width="1500" height="860" rx="26" fill="url(#bg)"/>
+  <text x="64" y="58" class="eyebrow">TITAN DEVELOPER WORKFORCE EXTENSION � MV3 RUNTIME MAP</text><text x="64" y="106" class="title">A browser-native control plane for governed engineering work</text><text x="64" y="136" class="sub">Source-backed from manifest.json, background.js, titan-workforce/, and tests/.</text>
+  <text x="70" y="190" class="section">EXTENSION BOOTSTRAP</text>
+  <rect x="70" y="220" width="230" height="130" rx="16" class="node"/><text x="185" y="260" text-anchor="middle" class="label">MV3 manifest</text><text x="185" y="289" text-anchor="middle" class="body">entrypoints � permissions</text><text x="185" y="315" text-anchor="middle" class="tiny">side panel + host access</text>
+  <path d="M300 285H390" class="route"/>
+  <rect x="390" y="220" width="240" height="130" rx="16" class="strong"/><text x="510" y="260" text-anchor="middle" class="label">Background runtime</text><text x="510" y="289" text-anchor="middle" class="body">bootstrap � lifecycle � bridge</text><text x="510" y="315" text-anchor="middle" class="tiny">background.js + integration</text>
+  <path d="M630 285H720" class="route"/>
+  <rect x="720" y="220" width="240" height="130" rx="16" class="control"/><text x="840" y="260" text-anchor="middle" class="label">Mission context</text><text x="840" y="289" text-anchor="middle" class="body">profiles � compiler � state</text><text x="840" y="315" text-anchor="middle" class="tiny">context + mission modules</text>
+  <path d="M960 285H1050" class="route"/>
+  <rect x="1050" y="220" width="380" height="130" rx="16" class="strong"/><text x="1240" y="260" text-anchor="middle" class="label">15-slot workforce</text><text x="1240" y="289" text-anchor="middle" class="body">10 chat � 2 supervisors � 2 builders � 1 orchestrator</text><text x="1240" y="315" text-anchor="middle" class="tiny">profiles are composable; workers are runtime state</text>
+  <text x="70" y="450" class="section">CONTROL + EVIDENCE</text>
+  <path d="M1240 350V500H1070" class="route"/>
+  <rect x="900" y="510" width="340" height="126" rx="16" class="control"/><text x="1070" y="550" text-anchor="middle" class="label">Capability broker</text><text x="1070" y="579" text-anchor="middle" class="body">authority ceilings � approvals</text><text x="1070" y="605" text-anchor="middle" class="tiny">execution capabilities + scope locks</text>
+  <path d="M900 573H780" class="route"/>
+  <rect x="430" y="510" width="350" height="126" rx="16" class="verify"/><text x="605" y="550" text-anchor="middle" class="label">Verification plane</text><text x="605" y="579" text-anchor="middle" class="body">tests � receipts � fail-closed gates</text><text x="605" y="605" text-anchor="middle" class="tiny">runtime verifiers + acceptance checks</text>
+  <path d="M430 573H310V700H590" class="route"/>
+  <rect x="590" y="700" width="560" height="92" rx="16" class="node"/><text x="870" y="738" text-anchor="middle" class="label">Observability + recovery</text><text x="870" y="766" text-anchor="middle" class="body">actor/correlation/evidence lineage � restart safety � diagnostics</text>
+  <path d="M1150 746H1350V410H1240V350" class="route"/>
+  <rect x="70" y="700" width="390" height="92" rx="16" class="node"/><text x="265" y="738" text-anchor="middle" class="label">Evidence boundary</text><text x="265" y="766" text-anchor="middle" class="body">the extension coordinates work; it does not imply release</text>
+</svg>
+
