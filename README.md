@@ -4,7 +4,7 @@
 
 # Titan Developer Workforce Extension
 
-**A Manifest V3 browser-extension workspace for composing and coordinating a governed 15-slot AI engineering workforce.**
+**A Manifest V3 browser-extension workspace that seeds a governed 15-slot AI engineering workforce and routes work through explicit orchestration, review and verification contracts.**
 
 </div>
 
