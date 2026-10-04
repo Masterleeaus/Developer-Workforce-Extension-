@@ -8,7 +8,75 @@
 
 </div>
 
+## Overview
+
 This repository evolves Titan Code 3 into a development workforce with explicit roles for Chat workers, Work supervisors, Codex builders and a Codex orchestrator. The implemented code is a migration and integration workspace: it contains the extension seed, workforce state modules, pipeline contracts, tests and architecture records. The complete 15-slot acceptance target is documented, but is not presented here as a released end-to-end workflow.
+
+
+## Measured evidence
+
+The repository defines a **26-command Node-based regression lane** in [developer-workforce-regression.yml](.github/workflows/developer-workforce-regression.yml), followed by a side-panel reference validation step.
+
+The lane covers, among other areas:
+
+- package/static reference integrity;
+- extension diagnostics and runtime observability;
+- specialist profile loading;
+- five-pass scheduling and integration;
+- Work-to-Codex pipeline contracts;
+- 15-slot workforce state and legacy migration;
+- live-chat and background-runtime handoff;
+- durability/restart recovery;
+- repository intelligence and mission context compilation;
+- usage governance;
+- native Codex runtime;
+- Git/CI recovery;
+- observability/replay;
+- conversation lifecycle;
+- cockpit hierarchy;
+- scope/capability enforcement.
+
+Two especially useful deterministic checks are:
+
+```bash
+node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/titan-work-codex-pipeline-selftest.js
+node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-workforce/core-selftest.mjs
+```
+
+The core self-test verifies the canonical **15-slot** structure, legacy-state migration, scope locking, provenance ancestry, service registration, CI failure classification, verification routing and several fail-closed repair paths.
+
+This is deterministic control-plane evidence. It does **not** establish authenticated provider-page compatibility, autonomous production coding quality, browser sleep/wake reliability or a completed release certification.
+
+## What is new
+
+The technical signature is a **multi-stage engineering workforce with explicit evidence lineage and objective completion gates**.
+
+```text
+Mission
+  ↓
+Chat research passes
+  ↓
+Supervisor review
+  ↓
+Approved implementation delta
+  ↓
+Codex builder packet
+  ↓
+Builder result
+  ↓
+Orchestrator decision
+  ↓
+Verification / repair / research / blocked / complete
+```
+
+The important distinction is that `COMPLETE` is not just a model opinion: the pipeline models Git truth, tests, runtime evidence, scope ownership and acceptance evidence as separate gates.
+
+### Evidence status
+
+- **Implemented:** 15-slot control model, workflow contracts, state migration, scope controls, provenance, verification and recovery modules.
+- **Regression surface:** 26 Node commands plus side-panel reference validation in CI definition.
+- **Migration workspace:** live provider/session behavior and full release acceptance remain separate lanes.
+- **Not claimed:** autonomous production engineering or complete provider compatibility.
 
 ## Get started
 
@@ -30,7 +98,7 @@ node hehggadaopoacecdllhhajmbjkdcmajg/1.26.901.11451_0/codex-sidepanel/titan-wor
 
 The full regression map is [developer-workforce-regression.yml](.github/workflows/developer-workforce-regression.yml). Acceptance certification, packaging and live extension smoke are separate evidence lanes.
 
-## What is implemented
+## Verified capabilities
 
 - **15-slot control model:** 10 Chat workers in two squads of five, 2 Work supervisors, 2 Codex builders and 1 Codex orchestrator.
 - **Composable workforce profiles:** roughly 50 specialist profiles describe expertise, architecture context, capability ceilings, risk hints and output/verification expectations. Profiles are inputs to selection; they are not extra live workers.
