@@ -10,6 +10,7 @@ function conversationCandidate(tab){
  }catch{return null}
 }
 export const RUNTIME_ALARM="titan-workforce-runtime-tick";
+export const SINGLE_TAB_TASK_ALARM="titan-single-tab-task-tick";
 
 export class TitanRuntimeOwner{
  constructor({
@@ -54,11 +55,28 @@ export class TitanRuntimeOwner{
   if(!existing)await this.alarms.create(this.alarmName,{periodInMinutes:this.periodInMinutes});
   return true;
  }
+ async ensureSingleTabAlarm(api=this.api){
+  if(!this.alarms?.get||!this.alarms?.create||!api?.singleTabTasks)return false;
+  const taskState=api.singleTabTasks.status();
+  const existing=await this.alarms.get(SINGLE_TAB_TASK_ALARM);
+  if(!taskState.enabled||!taskState.conversation){
+   if(existing)await this.alarms.clear?.(SINGLE_TAB_TASK_ALARM);
+   return false;
+  }
+  const interval=taskState.retryPending?taskState.retryIntervalMinutes:taskState.intervalMinutes;
+  const period=Math.max(1,Number(interval)||10);
+  if(existing&&Number(existing.periodInMinutes)===period)return true;
+  if(existing)await this.alarms.clear?.(SINGLE_TAB_TASK_ALARM);
+  await this.alarms.create(SINGLE_TAB_TASK_ALARM,{delayInMinutes:period,periodInMinutes:period});
+  return true;
+ }
  async tick(reason="alarm"){
   if(this.tickPromise)return this.tickPromise;
   this.tickPromise=(async()=>{
    const api=await this.ensure();
    await api.liveChat.tick();
+   await api.singleTabTasks?.tick?.();
+   await this.ensureSingleTabAlarm(api);
    await api.lifecycle?.run?.();
    await api.save();
    const snapshot=this.snapshot(api);
@@ -86,6 +104,7 @@ export class TitanRuntimeOwner{
    readiness:clone(api.integration?.readiness?.()||null),
    diagnostics:clone(api.diagnostics?.()||null),
    conversationLifecycle:clone(api.conversationLifecycle?.status?.()||null),
+   singleTabTasks:clone(api.singleTabTasks?.status?.()||null),
    metrics:clone(api.metrics?.()||null)
   };
  }
@@ -102,6 +121,16 @@ export class TitanRuntimeOwner{
    case "reconcileAction": result=api.reconcileAction(payload.key,payload.result||{});await api.save();break;
    case "approvalDecide": result=api.approvals.decide(payload.id,payload.decision||{});await api.save();break;
    case "missionUpsert": result=api.missions.upsert(payload.mission||payload);await api.save();break;
+   case "singleTabBind":{
+    const conversation=await api.singleTabTasks.conversationService.currentConversation();
+    result=await api.singleTabTasks.bind(conversation,{intervalMinutes:payload.intervalMinutes});
+    await this.ensureSingleTabAlarm(api);
+    await api.save();
+    break;
+   }
+   case "singleTabStart": result=await api.singleTabTasks.start({intervalMinutes:payload.intervalMinutes});await this.ensureSingleTabAlarm(api);await api.save();break;
+   case "singleTabPause": result=await api.singleTabTasks.pause(payload.reason||"manual");await this.ensureSingleTabAlarm(api);break;
+   case "singleTabClear": result=await api.singleTabTasks.clear();await this.ensureSingleTabAlarm(api);break;
    case "discoverConversations":{
     const tabs=this.tabs?.query?await this.tabs.query({}):[];
     result=tabs.map(conversationCandidate).filter(Boolean).sort((a,b)=>Number(b.active)-Number(a.active)||a.title.localeCompare(b.title));
@@ -156,3 +185,4 @@ export class TitanRuntimeOwner{
   this.tickPromise=null;
  }
 }
+

@@ -2,22 +2,90 @@ function conversationIdentity(url){
  try{const u=new URL(url),m=u.pathname.match(/^\/c\/([^/?#]+)/);return {origin:u.origin,conversationId:m?.[1]||null,key:m?.[1]?`${u.origin}/c/${m[1]}`:`${u.origin}${u.pathname}`}}catch{return null}
 }
 async function exec(tabId,func,args=[]){const r=await chrome.scripting.executeScript({target:{tabId},func,args});return r?.[0]?.result}
-function pageProbe(){
+export function pageProbe(){
  const assistant=[...document.querySelectorAll('[data-message-author-role="assistant"]')];
- const stop=!!document.querySelector('button[data-testid="stop-button"],button[aria-label*="Stop generating" i]');
+ const user=[...document.querySelectorAll('[data-message-author-role="user"]')];
+ const stopButton=document.querySelector('button[data-testid="stop-button"],button[aria-label*="Stop generating" i]');
  const composer=document.querySelector('#prompt-textarea,[contenteditable="true"][data-lexical-editor="true"],textarea');
- return {assistantCount:assistant.length,generating:stop,composerReady:!!composer,lastText:(assistant.at(-1)?.innerText||"").slice(-12000)};
+ const sendButton=document.querySelector('[data-testid="send-button"],button[aria-label*="Send" i],button[aria-label*="Queue" i]');
+ const label=el=>el?(el.getAttribute("aria-label")||el.getAttribute("title")||el.getAttribute("data-testid")||""):"";
+ return {assistantCount:assistant.length,userCount:user.length,generating:!!stopButton,composerReady:!!composer,composerTag:composer?.tagName||null,composerId:composer?.id||null,composerDisabled:!!composer?.disabled,composerText:composer?(composer.value??composer.innerText??""):"",sendButtonFound:!!sendButton,sendButtonDisabled:!!sendButton?.disabled,sendButtonLabel:label(sendButton),stopButtonFound:!!stopButton,stopButtonLabel:label(stopButton),lastText:(assistant.at(-1)?.innerText||"").slice(-12000),lastUserText:(user.at(-1)?.innerText||"").slice(-12000),lastAssistantTextLength:(assistant.at(-1)?.innerText||"").length,lastUserTextLength:(user.at(-1)?.innerText||"").length,pageOrigin:location.origin,pagePath:location.pathname,documentReadyState:document.readyState,visibilityState:document.visibilityState,userAgent:navigator.userAgent,language:navigator.language};
 }
-function sendPrompt(text){
+export async function sendPrompt(text){
  const el=document.querySelector('#prompt-textarea,[contenteditable="true"][data-lexical-editor="true"],textarea');if(!el)return false;
- el.focus();if(el.tagName==="TEXTAREA"){el.value=text;el.dispatchEvent(new Event("input",{bubbles:true}))}else{el.innerHTML="";document.execCommand("insertText",false,text);el.dispatchEvent(new InputEvent("input",{bubbles:true,inputType:"insertText",data:text}))}
- const b=document.querySelector('[data-testid="send-button"],button[aria-label*="Send" i]');if(b&&!b.disabled){b.click();return true}el.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",code:"Enter",bubbles:true,cancelable:true}));return true;
+ const existing=String(el.value??el.innerText??"").trim();if(existing)return false;
+ const readUsers=()=>{const users=[...document.querySelectorAll('[data-message-author-role="user"]')];return {count:users.length,lastText:users.at(-1)?.innerText||""}};
+ const before=readUsers();
+ el.focus();if(el.tagName==="TEXTAREA"){el.value=text;el.dispatchEvent(new Event("input",{bubbles:true}))}else{document.execCommand("insertText",false,text);el.dispatchEvent(new InputEvent("input",{bubbles:true,inputType:"insertText",data:text}))}
+ const inserted=String(el.value??el.innerText??"").trim();if(!inserted||!inserted.includes(String(text).slice(0,120)))return false;
+ const b=document.querySelector('[data-testid="send-button"],button[aria-label*="Send" i],button[aria-label*="Queue" i]');
+ if(b&&!b.disabled)b.click();else el.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",code:"Enter",bubbles:true,cancelable:true}));
+ await new Promise(resolve=>setTimeout(resolve,250));
+ const after=readUsers(),composer=document.querySelector('#prompt-textarea,[contenteditable="true"][data-lexical-editor="true"],textarea');
+ const accepted=Number(after.count||0)>Number(before.count||0)||String(after.lastText||"").includes(String(text).slice(0,120))||!String(composer?.value??composer?.innerText??"").trim();
+ if(accepted)return true;
+ if(composer&&String(composer.value??composer.innerText??"").trim()===String(text).trim()){
+  composer.focus();if(composer.tagName==="TEXTAREA")composer.value="";else composer.textContent="";
+  composer.dispatchEvent(new Event("input",{bubbles:true}));
+ }
+ return false;
 }
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function waitUntil(fn,{timeoutMs=30000,intervalMs=250}={}){
  const start=Date.now();let lastError=null;
  while(Date.now()-start<timeoutMs){try{const value=await fn();if(value)return value}catch(error){lastError=error}await sleep(intervalMs)}
  if(lastError)throw lastError;throw Object.assign(new Error("Conversation readiness timed out"),{code:"CONVERSATION_TIMEOUT"});
+}
+const PANEL_BRIDGE_TYPE="TITAN_SINGLE_TAB_PANEL_BRIDGE";
+async function panelRequest(action,payload={}){
+ let response;
+ try{response=await chrome.runtime.sendMessage({type:PANEL_BRIDGE_TYPE,action,payload})}
+ catch(error){throw Object.assign(new Error("Keep the ChatGPT extension side panel open so Titan can reach its conversation."),{code:"PANEL_CONVERSATION_UNAVAILABLE",cause:error})}
+ if(!response?.ok)throw Object.assign(new Error(response?.error||"ChatGPT extension conversation bridge failed"),{code:response?.code||"PANEL_CONVERSATION_UNAVAILABLE"});
+ return response.result;
+}
+export function createSidepanelConversationService({tabs=globalThis.chrome?.tabs,request=panelRequest}={}){
+ if(!tabs?.query||typeof request!=="function")throw new Error("Side-panel conversation service requires Chrome tabs and a panel bridge");
+ const activeConversation=async()=>{
+  const rows=await tabs.query({active:true,lastFocusedWindow:true});
+  const tab=rows?.[0];
+  if(!tab||tab.incognito||!Number.isSafeInteger(tab.id))throw new Error("An active non-incognito browser tab is required");
+  const conversation={tabId:tab.id,windowId:Number.isSafeInteger(tab.windowId)?tab.windowId:null,title:tab.title||"",url:tab.url||"",key:"chatgpt-extension-tab:"+tab.id,active:true};
+  const probe=await request("probe",{tabId:tab.id,windowId:conversation.windowId});
+  if(!probe?.composerReady)throw Object.assign(new Error("ChatGPT extension conversation composer is unavailable"),{code:"PANEL_COMPOSER_UNAVAILABLE"});
+  return conversation;
+ };
+ const assert=async(expected)=>{
+  const current=await activeConversation();
+  if(current.tabId!==expected?.tabId||current.key!==expected?.key||(expected?.windowId!=null&&current.windowId!==expected.windowId)){
+   throw Object.assign(new Error("The active browser tab changed; single-tab conversation identity is locked."),{code:"CONVERSATION_IDENTITY_MISMATCH"});
+  }
+  return current;
+ };
+ return {
+  capabilities:["extension_panel_conversation","single_tab_identity","send","observe"],
+  currentConversation:activeConversation,
+  async assertConversation(conversation){return assert(conversation)},
+  async sleepTab(conversation){
+   if(!tabs.get||!tabs.discard)return {attempted:false,success:false,reason:"TAB_DISCARD_API_UNAVAILABLE"};
+   const tab=await tabs.get(conversation.tabId);
+   if(tab?.active)return {attempted:false,success:false,reason:"ACTIVE_TAB_CANNOT_BE_DISCARDED"};
+   const discarded=await tabs.discard(conversation.tabId);
+   return {attempted:true,success:!!discarded,reason:discarded?null:"TAB_DISCARD_RETURNED_EMPTY"};
+  },
+  async observe(conversation){
+   await assert(conversation);
+   const result=await request("probe",{tabId:conversation.tabId,windowId:conversation.windowId});
+   if(!result?.composerReady)throw Object.assign(new Error("ChatGPT extension conversation composer is unavailable"),{code:"PANEL_COMPOSER_UNAVAILABLE"});
+   return result;
+  },
+  async send({conversation,instruction,idempotencyKey}){
+   await assert(conversation);
+   const result=await request("send",{instruction,idempotencyKey,tabId:conversation.tabId,windowId:conversation.windowId});
+   if(!result?.ok)throw Object.assign(new Error(result?.error||"ChatGPT extension composer rejected the prompt"),{code:result?.code||"PANEL_SEND_FAILED"});
+   return {ok:true,idempotencyKey,at:Date.now()};
+  }
+ };
 }
 export function createConversationService(){
  return {
@@ -34,7 +102,6 @@ export function createConversationService(){
   },
   async send({conversation,instruction,idempotencyKey}){
    await this.assertConversation(conversation);
-   const p=await exec(conversation.tabId,pageProbe);if(p?.generating){const e=new Error("Conversation is busy");e.code="CONVERSATION_BUSY";throw e}
    const ok=await exec(conversation.tabId,sendPrompt,[instruction]);if(!ok)throw new Error("Prompt composer unavailable");
    return {ok:true,idempotencyKey,at:Date.now()};
   },
@@ -72,3 +139,4 @@ export function createConversationService(){
 export function bindConversation(tabId){
  return chrome.tabs.get(tabId).then(tab=>{const id=conversationIdentity(tab.url||"");if(!id)throw new Error("Cannot bind conversation");return {...id,tabId,title:tab.title||"",boundAt:Date.now()}});
 }
+

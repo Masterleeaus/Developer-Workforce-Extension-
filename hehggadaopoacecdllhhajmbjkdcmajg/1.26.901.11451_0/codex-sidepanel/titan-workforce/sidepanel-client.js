@@ -1,5 +1,7 @@
+import {pageProbe,sendPrompt} from "./conversation-service.js";
 const COMMAND_TYPE="TITAN_WORKFORCE_RUNTIME_COMMAND";
 const STATE_TYPE="TITAN_WORKFORCE_RUNTIME_STATE";
+const PANEL_BRIDGE_TYPE="TITAN_SINGLE_TAB_PANEL_BRIDGE";
 let snapshot=null;
 let timer=null;
 let conversationCandidates=[];
@@ -168,6 +170,8 @@ function summary(){
 function ensurePanel(){
  let el=document.getElementById("titan-dev-workforce");
  if(!el){el=document.createElement("section");el.id="titan-dev-workforce";document.body.appendChild(el)}
+ let toggle=document.getElementById("titan-dev-workforce-toggle");
+ if(!toggle){toggle=document.createElement("button");toggle.id="titan-dev-workforce-toggle";toggle.type="button";toggle.textContent="Runner";toggle.title="Show ChatGPT task runner controls";toggle.style.cssText="position:fixed;right:8px;top:8px;z-index:2147483647;display:none;padding:6px 10px;border-radius:999px";toggle.addEventListener("click",()=>{el.style.display="block";toggle.style.display="none"});document.body.appendChild(toggle)}
  return el;
 }
 function serviceSummary(d){
@@ -244,11 +248,30 @@ function renderError(){
  if(!lastUiError)return "";
  return `<section class="result bad"><b>Control error</b><br>${esc(lastUiError.code?lastUiError.code+": ":"")}${esc(lastUiError.message||lastUiError)}</section>`;
 }
+function renderSingleTabTaskControl(){
+ const task=snapshot?.singleTabTasks||snapshot?.state?.singleTabTaskPump||{};
+ const bound=task.conversation||null;
+ const rows=(task.subtasks||[]).map((x,i)=>`<div class="mission-row"><b>${esc(x.id||"S"+(i+1))}</b> · ${esc(x.title||"")} <span class="pill">${esc(x.status||"queued")}</span></div>`).join("");
+ const phase=task.phase||"unbound",status=task.enabled?"RUNNING":"PAUSED";
+ return `<details open><summary><b>ChatGPT extension · single-tab runner</b> · ${esc(status)} · ${esc(phase)} · ${task.currentIndex||0}/10</summary>
+  <div class="muted">Bind the active browser tab and press <b>Start</b>. Then choose <b>Use ChatGPT</b> and give the task in this extension's ChatGPT conversation. Keep this side panel open while the timed runner is active.</div>
+  <div class="binding">
+   <label for="tdw-single-tab-interval">Interval (minutes)</label><input id="tdw-single-tab-interval" type="number" min="1" max="1440" value="${esc(task.intervalMinutes||10)}" style="width:72px">
+   <button data-action="single-tab-bind">Bind active tab</button><button data-action="single-tab-start">${task.enabled?"Restart cadence":"Start"}</button><button data-action="single-tab-pause">Pause</button><button data-action="single-tab-clear">Clear</button>
+  </div>
+  <div class="muted">Bound tab: ${esc(bound?.title||bound?.key||"none")} · next check: ${esc(fmtTime(task.nextRunAt))} · last check: ${esc(fmtTime(task.lastCheckAt))}</div>
+  <div class="muted">On an unconfirmed subtask send, retry every ${esc(task.retryIntervalMinutes||5)} minutes; after ${esc(task.maxRetryPasses||5)} failed retries the runner parks and creates diagnostics. Chrome can discard only an inactive tab.</div>
+  ${task.retryPending?`<div class="result bad"><b>Retrying ${esc(task.retryTaskIndex!=null?"S"+(task.retryTaskIndex+1):"")}</b> · failed retry passes ${esc(task.retryPasses||0)}/${esc(task.maxRetryPasses||5)} · next retry ${esc(fmtTime(task.retryNextAt))}</div>`:""}
+  <div class="mission-list">${rows||"<span class=\"muted\">No 10-step plan yet.</span>"}</div>
+  ${task.lastError?`<div class="result bad">${esc(task.lastError.code||"Error")}: ${esc(task.lastError.message||"")}</div>`:""}
+  ${task.diagnosticReport?`<details open><summary><b>Send diagnostic</b> · ${esc(task.diagnosticReport.classification||"report ready")}</summary><div><b>Likely cause:</b> ${esc(task.diagnosticReport.likelyCause||"")}</div><div><b>Sleep result:</b> ${esc(task.diagnosticReport.sleepNote||task.diagnosticReport.sleep?.reason||"")}</div><div><b>Suggested checks:</b> ${(task.diagnosticReport.nextSteps||[]).map(esc).join(" · ")}</div><pre style="white-space:pre-wrap;max-height:280px;overflow:auto">${esc(JSON.stringify(task.diagnosticReport,null,2))}</pre></details>`:""}
+ </details>`;
+}
 function render(){
  const el=ensurePanel();
  if(!snapshot){el.innerHTML=`<style>${styles()}</style><b>Developer Workforce</b><div>Background runtime unavailable</div>${renderError()}<button id="tdw-refresh">Retry</button>`;el.querySelector("#tdw-refresh").onclick=()=>refresh();return}
  const s=summary(),list=agents();
- el.innerHTML=`<style>${styles()}</style><header><div><b>Developer Workforce · ${s.total} agents</b><div class="muted">${esc(s.owner)} · ${s.armed?"ARMED":"DISARMED"}${s.emergencyStop?" · E-STOP":""} · active ${s.active}/${s.total}</div></div></header>${renderError()}${renderPreflight()}<nav class="toolbar"><button data-action="${s.armed?"disarm":"arm"}">${s.armed?"Disarm":"Arm"}</button><button data-action="estop" class="danger">E-STOP</button><button data-action="pause-all">Pause all</button><button data-action="resume-all">Resume all</button><button data-action="quarantine-all">Quarantine all</button><button data-action="unquarantine-all">Unquarantine all</button><button data-action="discover">Discover conversations</button><button data-action="diagnostics">Diagnostics</button><button data-action="preflight">Preflight</button><button data-action="refresh">Refresh</button></nav><nav class="toolbar"><b>Squads:</b> A <button data-action="pause-squad" data-squad="A">Pause</button><button data-action="resume-squad" data-squad="A">Resume</button><button data-action="quarantine-squad" data-squad="A">Quarantine</button><button data-action="unquarantine-squad" data-squad="A">Unquarantine</button> B <button data-action="pause-squad" data-squad="B">Pause</button><button data-action="resume-squad" data-squad="B">Resume</button><button data-action="quarantine-squad" data-squad="B">Quarantine</button><button data-action="unquarantine-squad" data-squad="B">Unquarantine</button></nav><div class="topology">Chat workers ${s.byClass.chat_worker||0} · Work supervisors ${s.byClass.work_supervisor||0} · Codex builders ${s.byClass.codex_builder||0} · Codex orchestrator ${s.byClass.codex_orchestrator||0}</div>${renderStatusBlock()}${conversationCandidates.length?`<div class="result ok">Discovered ${conversationCandidates.length} ChatGPT conversations.</div>`:""}${renderMissionOperations()}${group("Squad A · A1–A5 + Supervisor A",list.filter(a=>a.squad==="A"))}${group("Squad B · B1–B5 + Supervisor B",list.filter(a=>a.squad==="B"))}${group("Codex builders",list.filter(a=>a.executionClass==="codex_builder"))}${group("Codex orchestrator",list.filter(a=>a.executionClass==="codex_orchestrator"))}`;
+ el.innerHTML=`<style>${styles()}</style><header><div><b>Developer Workforce · ${s.total} agents</b><div class="muted">${esc(s.owner)} · ${s.armed?"ARMED":"DISARMED"}${s.emergencyStop?" · E-STOP":""} · active ${s.active}/${s.total}</div></div></header>${renderError()}${renderPreflight()}<nav class="toolbar"><button data-action="use-chatgpt">Use ChatGPT</button><button data-action="${s.armed?"disarm":"arm"}">${s.armed?"Disarm":"Arm"}</button><button data-action="estop" class="danger">E-STOP</button><button data-action="pause-all">Pause all</button><button data-action="resume-all">Resume all</button><button data-action="quarantine-all">Quarantine all</button><button data-action="unquarantine-all">Unquarantine all</button><button data-action="discover">Discover conversations</button><button data-action="diagnostics">Diagnostics</button><button data-action="preflight">Preflight</button><button data-action="refresh">Refresh</button></nav><nav class="toolbar"><b>Squads:</b> A <button data-action="pause-squad" data-squad="A">Pause</button><button data-action="resume-squad" data-squad="A">Resume</button><button data-action="quarantine-squad" data-squad="A">Quarantine</button><button data-action="unquarantine-squad" data-squad="A">Unquarantine</button> B <button data-action="pause-squad" data-squad="B">Pause</button><button data-action="resume-squad" data-squad="B">Resume</button><button data-action="quarantine-squad" data-squad="B">Quarantine</button><button data-action="unquarantine-squad" data-squad="B">Unquarantine</button></nav><div class="topology">Chat workers ${s.byClass.chat_worker||0} · Work supervisors ${s.byClass.work_supervisor||0} · Codex builders ${s.byClass.codex_builder||0} · Codex orchestrator ${s.byClass.codex_orchestrator||0}</div>${renderStatusBlock()}${conversationCandidates.length?`<div class="result ok">Discovered ${conversationCandidates.length} ChatGPT conversations.</div>`:""}${renderMissionOperations()}${renderSingleTabTaskControl()}${group("Squad A · A1–A5 + Supervisor A",list.filter(a=>a.squad==="A"))}${group("Squad B · B1–B5 + Supervisor B",list.filter(a=>a.squad==="B"))}${group("Codex builders",list.filter(a=>a.executionClass==="codex_builder"))}${group("Codex orchestrator",list.filter(a=>a.executionClass==="codex_orchestrator"))}`;
  wire(el,s);
 }
 function styles(){return `
@@ -284,6 +307,11 @@ function wire(el,s){
   else if(action==="quarantine-agent"){const reason=prompt("Quarantine reason","manual cockpit quarantine");if(reason!==null)await command("quarantineAgent",{id:agent,reason})}
   else if(action==="unquarantine-agent"){if(confirm("Unquarantine "+agent+"? This is an explicit approval."))await command("unquarantineAgent",{id:agent,approved:true,reason:"cockpit approval"})}
   else if(action==="bind-agent"){const select=el.querySelector(`[data-bind-select="${CSS.escape(agent)}"]`);await bindAgent(agent,select?.value)}
+  else if(action==="single-tab-bind"){const intervalMinutes=Number(el.querySelector("#tdw-single-tab-interval")?.value);await command("singleTabBind",{intervalMinutes});}
+  else if(action==="single-tab-start"){const intervalMinutes=Number(el.querySelector("#tdw-single-tab-interval")?.value);await command("singleTabStart",{intervalMinutes});}
+  else if(action==="use-chatgpt"){el.style.display="none";const toggle=el.ownerDocument.getElementById("titan-dev-workforce-toggle");if(toggle)toggle.style.display="block"}
+  else if(action==="single-tab-pause")await command("singleTabPause",{reason:"sidepanel"});
+  else if(action==="single-tab-clear"){if(confirm("Clear the single-tab plan and history?"))await command("singleTabClear")}
   else if(action==="rotate-conversation"){if(confirm("Rotate "+agent+" to a fresh conversation using a compact checkpoint?"))await command("rotateConversation",{id:agent,createIfMissing:true,active:false})}
   else if(action==="discover")await discoverConversations();
   else if(action==="diagnostics")await runDiagnostics();
@@ -291,7 +319,23 @@ function wire(el,s){
   else if(action==="refresh")await refresh();
  })));
 }
-chrome.runtime.onMessage.addListener(message=>{
+chrome.runtime.onMessage.addListener((message,_sender,sendResponse)=>{
+ if(message?.type===PANEL_BRIDGE_TYPE){
+  Promise.resolve().then(async()=>{
+   const windowId=Number(message.payload?.windowId);
+   if(!Number.isSafeInteger(windowId))return null;
+   const tabs=await chrome.tabs.query({active:true,currentWindow:true});
+   if(Number(tabs?.[0]?.windowId)!==windowId)return null;
+   if(Number(tabs?.[0]?.id)!==Number(message.payload?.tabId))return null;
+   if(message.action==="probe")return {ok:true,result:pageProbe()};
+   if(message.action==="send"){
+    if(!await sendPrompt(String(message.payload?.instruction||"")))return {ok:false,code:"PANEL_SEND_UNCONFIRMED",error:"ChatGPT did not accept the prompt. The composer may be busy or contain an unsent draft."};
+    return {ok:true,result:{ok:true,sent:true}};
+   }
+   return {ok:false,error:"Unknown panel bridge action"};
+  }).then(response=>{if(response)sendResponse(response)},error=>sendResponse({ok:false,error:String(error?.message||error),code:error?.code||"PANEL_BRIDGE_ERROR"}));
+  return true;
+ }
  if(message?.type!==STATE_TYPE)return false;
  if(message.snapshot){snapshot=message.snapshot;lastDiagnostics=snapshot.diagnostics||lastDiagnostics;render()}
  return false;
@@ -299,3 +343,4 @@ chrome.runtime.onMessage.addListener(message=>{
 refresh();
 timer=setInterval(refresh,5000);
 window.addEventListener("pagehide",()=>{if(timer)clearInterval(timer)},{once:true});
+
